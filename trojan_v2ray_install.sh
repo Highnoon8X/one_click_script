@@ -37,6 +37,45 @@ bold(){
 
 
 
+function showHeaderGreen(){
+    echo
+    green " =================================================="
+
+    for parameter in "$@"
+    do
+        if [[ -n "${parameter}" ]]; then
+            green " ${parameter}"
+        fi
+    done
+
+    green " =================================================="
+    echo
+}
+function showHeaderRed(){
+    echo
+    red " =================================================="
+    for parameter in "$@"
+    do
+        if [[ -n "${parameter}" ]]; then
+            red " ${parameter}"
+        fi
+    done
+    red " =================================================="
+    echo
+}
+function showInfoGreen(){
+    echo
+    for parameter in "$@"
+    do
+        if [[ -n "${parameter}" ]]; then
+            green " ${parameter}"
+        fi
+    done
+    echo
+}
+
+
+
 
 osCPU=""
 osArchitecture="arm"
@@ -101,12 +140,13 @@ getLinuxOSVersion(){
         # linuxbase.org
         osInfo=$(lsb_release -si)
         osReleaseVersionNo=$(lsb_release -sr)
+
     elif [ -f /etc/lsb-release ]; then
         # For some versions of Debian/Ubuntu without lsb_release command
         . /etc/lsb-release
         osInfo=$DISTRIB_ID
-        
         osReleaseVersionNo=$DISTRIB_RELEASE
+        
     elif [ -f /etc/debian_version ]; then
         # Older Debian/Ubuntu/etc.
         osInfo=Debian
@@ -279,6 +319,34 @@ function testLinuxPortUsage(){
 
 
 
+# 查看端口占用情况
+function checkPortUsage(){
+    # https://stackoverflow.com/questions/2013547/assigning-default-values-to-shell-variables-with-a-single-command-in-bash
+
+    portNum="${1:-80}"
+    # check port 80 is running
+    # http://www.letuknowit.com/post/98.html
+    # 不过，一般像下面这样写，多一个加号表明将连续出现的记录分隔符当做一个来处理
+
+    osPort80=$(netstat -tupln | awk -F '[ ]+' '$1=="tcp"||$1=="tcp6"{print $4}' | grep -w "${portNum}")
+
+    if [ -n "$osPort80" ]; then
+        process80=$(netstat -tupln | grep -w "${portNum}" | awk -F '[ ]+' '{print $7}')
+
+        showHeaderRed "检测到${portNum}端口被占用，占用进程为：${process80} "
+
+        if [[ ${portNum} == "80" ]] ; then
+            green " 如需要关闭 apache2 请运行如下命令: "
+            green " Run following command to stop apache2: "
+            green " ${sudoCmd} systemctl stop apache2 "
+            green " ${sudoCmd} systemctl disable apache2 "
+        fi
+
+
+        promptContinueOpeartion
+    fi
+
+}
 
 
 
@@ -347,7 +415,6 @@ function setLinuxRootLogin(){
     fi
 
     # /etc/init.d/ssh restart
-
 }
 
 
@@ -369,9 +436,11 @@ function changeLinuxSSHPort(){
             fi
 
             # semanage port -l
-            semanage port -a -t ssh_port_t -p tcp $osSSHLoginPortInput
-            firewall-cmd --permanent --zone=public --add-port=$osSSHLoginPortInput/tcp 
-            firewall-cmd --reload
+            semanage port -a -t ssh_port_t -p tcp ${osSSHLoginPortInput}
+            if command -v firewall-cmd &> /dev/null; then
+                firewall-cmd --permanent --zone=public --add-port=$osSSHLoginPortInput/tcp 
+                firewall-cmd --reload
+            fi
     
             ${sudoCmd} systemctl restart sshd.service
 
@@ -388,7 +457,7 @@ function changeLinuxSSHPort(){
         green "设置成功, 请记住设置的端口号 ${osSSHLoginPortInput}!"
         green "登陆服务器命令: ssh -p ${osSSHLoginPortInput} root@111.111.111.your ip !"
     else
-        echo "输入的端口号错误! 范围: 22,1025~65534"
+        red "输入的端口号错误! 范围: 22,1025~65534. Exit !"
     fi
 }
 
@@ -436,17 +505,23 @@ function setLinuxDateZone(){
             systemctl restart ntpd
             ntpdate -u  pool.ntp.org
 
-        elif  [[ ${osReleaseVersionNoShort} == "8" ]]; then
+        elif  [[ ${osReleaseVersionNoShort} == "8" || ${osReleaseVersionNoShort} == "9" ]]; then
             $osSystemPackage -y install chrony
             systemctl enable chronyd
             systemctl restart chronyd
 
-            firewall-cmd --permanent --add-service=ntp
-            firewall-cmd --reload    
+            if command -v firewall-cmd &> /dev/null; then
+                firewall-cmd --permanent --add-service=ntp
+                firewall-cmd --reload
+            fi 
+
+            echo ""
+            echo "chrony sources:"
 
             chronyc sources
 
-            echo
+            echo ""
+            echo ""
         fi
         
     else
@@ -467,21 +542,21 @@ function setLinuxDateZone(){
 function installSoftDownload(){
 	if [[ "${osRelease}" == "debian" || "${osRelease}" == "ubuntu" ]]; then
 		if ! dpkg -l | grep -qw wget; then
-			${osSystemPackage} -y install wget git unzip curl
+			${osSystemPackage} -y install wget git unzip curl apt-transport-https
 			
 			# https://stackoverflow.com/questions/11116704/check-if-vt-x-is-activated-without-having-to-reboot-in-linux
 			${osSystemPackage} -y install cpu-checker
 		fi
 
 		if ! dpkg -l | grep -qw curl; then
-			${osSystemPackage} -y install curl git unzip wget
+			${osSystemPackage} -y install curl git unzip wget apt-transport-https
 			
 			${osSystemPackage} -y install cpu-checker
 		fi
 
 	elif [[ "${osRelease}" == "centos" ]]; then
 
-        if  [[ ${osReleaseVersion} == "8.1.1911" || ${osReleaseVersion} == "8.2.2004" || ${osReleaseVersion} == "8.0.1905" ]]; then
+        if  [[ ${osReleaseVersion} == "8.1.1911" || ${osReleaseVersion} == "8.2.2004" || ${osReleaseVersion} == "8.0.1905" || ${osReleaseVersion} == "8.5.2111" ]]; then
 
             # https://techglimpse.com/failed-metadata-repo-appstream-centos-8/
 
@@ -503,6 +578,9 @@ function installSoftDownload(){
 
         elif ! rpm -qa | grep -qw git; then
 		    ${osSystemPackage} -y install wget curl git unzip
+
+        elif ! rpm -qa | grep -qw unzip; then
+            ${osSystemPackage} -y install wget curl git unzip
 		fi
 	fi
 }
@@ -515,32 +593,35 @@ function installPackage(){
     green " =================================================="
     echo
 
-    
     # sed -i '1s/^/nameserver 1.1.1.1 \n/' /etc/resolv.conf
-
 
     if [ "$osRelease" == "centos" ]; then
        
         # rpm -Uvh http://nginx.org/packages/centos/7/noarch/RPMS/nginx-release-centos-7-0.el7.ngx.noarch.rpm
+        rm -f /etc/yum.repos.d/nginx.repo
+        # cat > "/etc/yum.repos.d/nginx.repo" <<-EOF
+# [nginx]
+# name=nginx repo
+# baseurl=https://nginx.org/packages/centos/$osReleaseVersionNoShort/\$basearch/
+# gpgcheck=0
+# enabled=1
+# sslverify=0
+# 
+# EOF
 
-        cat > "/etc/yum.repos.d/nginx.repo" <<-EOF
-[nginx]
-name=nginx repo
-baseurl=https://nginx.org/packages/centos/$osReleaseVersionNoShort/\$basearch/
-gpgcheck=0
-enabled=1
-sslverify=0
-
-EOF
         if ! rpm -qa | grep -qw iperf3; then
 			${sudoCmd} ${osSystemPackage} install -y epel-release
 
-            ${osSystemPackage} install -y curl wget git unzip zip tar bind-utils
-            ${osSystemPackage} install -y xz jq redhat-lsb-core 
+            ${osSystemPackage} install -y curl wget git unzip zip tar
+            ${osSystemPackage} install -y redhat-lsb-core 
+            ${osSystemPackage} install -y bind-utils net-tools
+            ${osSystemPackage} install -y xz jq
             ${osSystemPackage} install -y iputils
-            ${osSystemPackage} install -y iperf3
+            ${osSystemPackage} install -y iperf3 
+            ${osSystemPackage} install -y htop 
 		fi
-
+        yum clean all
+        
         ${osSystemPackage} update -y
 
 
@@ -551,24 +632,42 @@ EOF
             ${sudoCmd} yum module list nginx
         fi
 
+        if  [[  ${osReleaseVersionNoShort} == "9" ]]; then
+            ${sudoCmd} yum module -y reset nginx
+            ${sudoCmd} yum module -y enable nginx:1.22
+            ${sudoCmd} yum module list nginx
+        fi
+        
     elif [ "$osRelease" == "ubuntu" ]; then
         
         # https://joshtronic.com/2018/12/17/how-to-install-the-latest-nginx-on-debian-and-ubuntu/
         # https://www.nginx.com/resources/wiki/start/topics/tutorials/install/
         
-        $osSystemPackage install -y gnupg2
-        wget -O - https://nginx.org/keys/nginx_signing.key | ${sudoCmd} apt-key add -
+        $osSystemPackage install -y gnupg2 curl ca-certificates lsb-release ubuntu-keyring
+        # wget -O - https://nginx.org/keys/nginx_signing.key | ${sudoCmd} apt-key add -
+        curl https://nginx.org/keys/nginx_signing.key | gpg --dearmor | sudo tee /usr/share/keyrings/nginx-archive-keyring.gpg >/dev/null
+
+        rm -f /etc/apt/sources.list.d/nginx.list
 
         cat > "/etc/apt/sources.list.d/nginx.list" <<-EOF
-deb [arch=amd64] https://nginx.org/packages/ubuntu/ $osReleaseVersionCodeName nginx
-deb-src https://nginx.org/packages/ubuntu/ $osReleaseVersionCodeName nginx
+deb [signed-by=/usr/share/keyrings/nginx-archive-keyring.gpg]   https://nginx.org/packages/ubuntu/ $osReleaseVersionCodeName nginx
+# deb [arch=amd64] https://nginx.org/packages/ubuntu/ $osReleaseVersionCodeName nginx
+# deb-src https://nginx.org/packages/ubuntu/ $osReleaseVersionCodeName nginx
 EOF
+
+        echo -e "Package: *\nPin: origin nginx.org\nPin: release o=nginx\nPin-Priority: 900\n"  | sudo tee /etc/apt/preferences.d/99-nginx
+
+        if [[ "${osReleaseVersionNoShort}" == "22" || "${osReleaseVersionNoShort}" == "21" ]]; then
+            echo
+        fi
+
+
 
         ${osSystemPackage} update -y
 
         if ! dpkg -l | grep -qw iperf3; then
             ${sudoCmd} ${osSystemPackage} install -y software-properties-common
-            ${osSystemPackage} install -y curl wget git unzip zip tar
+            ${osSystemPackage} install -y curl wget git unzip zip tar htop
             ${osSystemPackage} install -y xz-utils jq lsb-core lsb-release
             ${osSystemPackage} install -y iputils-ping
             ${osSystemPackage} install -y iperf3
@@ -576,21 +675,27 @@ EOF
 
     elif [ "$osRelease" == "debian" ]; then
         # ${sudoCmd} add-apt-repository ppa:nginx/stable -y
-        apt update -y
+        ${osSystemPackage} update -y
 
         apt install -y gnupg2
         apt install -y curl ca-certificates lsb-release
         wget https://nginx.org/keys/nginx_signing.key -O- | apt-key add - 
 
-        cat > "/etc/apt/sources.list.d/nginx.list" <<-EOF
+        rm -f /etc/apt/sources.list.d/nginx.list
+        if [[ "${osReleaseVersionNoShort}" == "12" ]]; then
+            echo
+        else
+            cat > "/etc/apt/sources.list.d/nginx.list" <<-EOF
 deb https://nginx.org/packages/mainline/debian/ $osReleaseVersionCodeName nginx
 deb-src https://nginx.org/packages/mainline/debian $osReleaseVersionCodeName nginx
 EOF
+        fi
 
-        apt update -y
+
+        ${osSystemPackage} update -y
 
         if ! dpkg -l | grep -qw iperf3; then
-            ${osSystemPackage} install -y curl wget git unzip zip tar
+            ${osSystemPackage} install -y curl wget git unzip zip tar htop
             ${osSystemPackage} install -y xz-utils jq lsb-core lsb-release
             ${osSystemPackage} install -y iputils-ping
             ${osSystemPackage} install -y iperf3
@@ -699,7 +804,7 @@ function installSoftOhMyZsh(){
         fi
 
 
-        echo 'alias lla="ls -ahl"' >> ${HOME}/.zshrc
+        echo 'alias ll="ls -ahl"' >> ${HOME}/.zshrc
         echo 'alias mi="micro"' >> ${HOME}/.zshrc
 
         green " =================================================="
@@ -774,7 +879,8 @@ function vps_netflix_jin(){
 
 
 function vps_netflixgo(){
-    wget -qN --no-check-certificate -O netflixGo https://github.com/sjlleo/netflix-verify/releases/download/2.61/nf_2.61_linux_amd64 && chmod +x ./netflixGo && ./netflixGo -method full
+    wget -qN --no-check-certificate -O netflixGo https://github.com/sjlleo/netflix-verify/releases/download/v3.1.0/nf_linux_amd64 && chmod +x ./netflixGo && ./netflixGo
+    # wget -qN --no-check-certificate -O netflixGo https://github.com/sjlleo/netflix-verify/releases/download/2.61/nf_2.61_linux_amd64 && chmod +x ./netflixGo && ./netflixGo -method full
     echo
     echo
     wget -qN --no-check-certificate -O disneyplusGo https://github.com/sjlleo/VerifyDisneyPlus/releases/download/1.01/dp_1.01_linux_amd64 && chmod +x ./disneyplusGo && ./disneyplusGo
@@ -783,6 +889,10 @@ function vps_netflixgo(){
 
 function vps_superspeed(){
     bash <(curl -Lso- https://git.io/superspeed_uxh)
+    # bash <(curl -Lso- https://git.io/Jlkmw)
+    # https://github.com/coolaj/sh/blob/main/speedtest.sh
+
+
     # bash <(curl -Lso- https://raw.githubusercontent.com/uxh/superspeed/master/superspeed.sh)
 
     # bash <(curl -Lso- https://raw.githubusercontent.com/zq/superspeed/master/superspeed.sh)
@@ -802,19 +912,23 @@ function vps_yabs(){
 	curl -sL yabs.sh | bash
 }
 function vps_bench(){
-	wget -N --no-check-certificate https://raw.githubusercontent.com/teddysun/across/master/bench.sh && chmod +x bench.sh && bash bench.sh
+    wget -N --no-check-certificate https://raw.githubusercontent.com/jinwyp/one_click_script/master/bench.sh && chmod +x bench.sh && bash bench.sh
+	# wget -N --no-check-certificate https://raw.githubusercontent.com/teddysun/across/master/bench.sh && chmod +x bench.sh && bash bench.sh
+}
+function vps_bench_dedicated(){
+    # bash -c "$(wget -qO- https://github.com/Aniverse/A/raw/i/a)"
+	wget -N --no-check-certificate -O dedicated_server_bench.sh https://raw.githubusercontent.com/Aniverse/A/i/a && chmod +x dedicated_server_bench.sh && bash dedicated_server_bench.sh
 }
 
 function vps_zbench(){
 	wget -N --no-check-certificate https://raw.githubusercontent.com/FunctionClub/ZBench/master/ZBench-CN.sh && chmod +x ZBench-CN.sh && bash ZBench-CN.sh
 }
+function vps_LemonBench(){
+    wget -N --no-check-certificate -O LemonBench.sh https://ilemonra.in/LemonBenchIntl && chmod +x LemonBench.sh && ./LemonBench.sh fast
+}
 
 function vps_testrace(){
 	wget -N --no-check-certificate https://raw.githubusercontent.com/nanqinlang-script/testrace/master/testrace.sh && chmod +x testrace.sh && ./testrace.sh
-}
-
-function vps_LemonBench(){
-    wget -N --no-check-certificate -O LemonBench.sh https://ilemonra.in/LemonBenchIntl && chmod +x LemonBench.sh && ./LemonBench.sh fast
 }
 
 function vps_autoBestTrace(){
@@ -822,6 +936,16 @@ function vps_autoBestTrace(){
 }
 function vps_mtrTrace(){
     curl https://raw.githubusercontent.com/zhucaidan/mtr_trace/main/mtr_trace.sh | bash
+}
+function vps_returnroute(){
+    # https://www.zhujizixun.com/6216.html
+    # https://91ai.net/thread-1015693-5-1.html
+    # https://github.com/zhucaidan/mtr_trace
+    wget --no-check-certificate -O route https://tutu.ovh/bash/returnroute/route  && chmod +x route && ./route
+}
+function vps_returnroute2(){
+    # curl https://raw.githubusercontent.com/zhanghanyun/backtrace/main/install.sh | sh
+    wget -N --no-check-certificate -O routeGo.sh https://raw.githubusercontent.com/zhanghanyun/backtrace/main/install.sh && chmod +x routeGo.sh && ./routeGo.sh
 }
 
 
@@ -833,6 +957,11 @@ function installBBR(){
 
 function installBBR2(){
     wget -N --no-check-certificate "https://raw.githubusercontent.com/ylx2016/Linux-NetSpeed/master/tcp.sh" && chmod +x tcp.sh && ./tcp.sh
+}
+
+
+function installSWAP(){
+    bash <(wget --no-check-certificate -qO- 'https://www.moerats.com/usr/shell/swap.sh')
 }
 
 
@@ -908,9 +1037,6 @@ function installBTPanelCrackHostcli(){
 
 
 
-configNetworkRealIp=""
-configNetworkLocalIp=""
-configSSLDomain=""
 
 
 
@@ -929,32 +1055,35 @@ configDownloadTempPath="${HOME}/temp"
 versionTrojan="1.16.0"
 downloadFilenameTrojan="trojan-${versionTrojan}-linux-amd64.tar.xz"
 
-versionTrojanGo="0.10.5"
+versionTrojanGo="0.10.6"
 downloadFilenameTrojanGo="trojan-go-linux-amd64.zip"
 
-versionV2ray="4.45.0"
+versionV2ray="4.45.2"
 downloadFilenameV2ray="v2ray-linux-64.zip"
 
-versionXray="1.5.2"
+versionXray="1.6.6-2"
 downloadFilenameXray="Xray-linux-64.zip"
 
 versionTrojanWeb="2.10.5"
 downloadFilenameTrojanWeb="trojan-linux-amd64"
 
 isTrojanMultiPassword="no"
-promptInfoTrojanName=""
-isTrojanGo="yes"
+promptInfoTrojanName="-go"
+
 isTrojanGoSupportWebsocket="false"
 configTrojanGoWebSocketPath=$(cat /dev/urandom | head -1 | md5sum | head -c 8)
 configTrojanPasswordPrefixInputDefault=$(cat /dev/urandom | head -1 | md5sum | head -c 3)
 
+
+trojanInstallType="4"
 configTrojanPath="${HOME}/trojan"
 configTrojanGoPath="${HOME}/trojan-go"
+configTrojanBasePath="${configTrojanGoPath}"
+
 configTrojanWebPath="${HOME}/trojan-web"
 configTrojanLogFile="${HOME}/trojan-access.log"
-configTrojanGoLogFile="${HOME}/trojan-go-access.log"
 
-configTrojanBasePath=${configTrojanPath}
+
 configTrojanBaseVersion=${versionTrojan}
 
 configTrojanWebNginxPath=$(cat /dev/urandom | head -1 | md5sum | head -c 5)
@@ -962,6 +1091,7 @@ configTrojanWebPort="$(($RANDOM + 10000))"
 
 configInstallNginxMode=""
 nginxConfigPath="/etc/nginx/nginx.conf"
+nginxConfigSiteConfPath="/etc/nginx/conf.d"
 
 
 promptInfoXrayInstall="V2ray"
@@ -1024,13 +1154,22 @@ function downloadAndUnzip(){
         green "===== 下载并解压tar文件: $3 "
         wget -O ${configDownloadTempPath}/$3 $1
         tar xf ${configDownloadTempPath}/$3 -C ${configDownloadTempPath}
-        mv ${configDownloadTempPath}/trojan/* $2
-        rm -rf ${configDownloadTempPath}/trojan
-    else
+
+        mv ${configDownloadTempPath}/* $2
+         
+
+    elif [[ $3 == *"tar.gz"* ]]; then
+        green "===== 下载并解压tar.gz文件: $3 "
+        wget -O ${configDownloadTempPath}/$3 $1
+        tar -xzvf ${configDownloadTempPath}/$3 -C ${configDownloadTempPath}
+        mv ${configDownloadTempPath}/easymosdns/* $2
+        
+    else  
         green "===== 下载并解压zip文件:  $3 "
         wget -O ${configDownloadTempPath}/$3 $1
         unzip -d $2 ${configDownloadTempPath}/$3
     fi
+    rm -rf ${configDownloadTempPath}/*
 
 }
 
@@ -1039,31 +1178,34 @@ function getGithubLatestReleaseVersion(){
     wget --no-check-certificate -qO- https://api.github.com/repos/$1/tags | grep 'name' | cut -d\" -f4 | head -1 | cut -b 2-
 }
 
-function getTrojanAndV2rayVersion(){
+function getV2rayVersion(){
     # https://github.com/trojan-gfw/trojan/releases/download/v1.16.0/trojan-1.16.0-linux-amd64.tar.xz
 
-    echo ""
-
-    if [[ $1 == "trojan" ]] ; then
-        versionTrojan=$(getGithubLatestReleaseVersion "trojan-gfw/trojan")
-        downloadFilenameTrojan="trojan-${versionTrojan}-linux-amd64.tar.xz"
-        echo "versionTrojan: ${versionTrojan}"
-    fi
-
-    if [[ $1 == "trojan-go" ]] ; then
-        versionTrojanGo=$(getGithubLatestReleaseVersion "p4gefau1t/trojan-go")
-        echo "versionTrojanGo: ${versionTrojanGo}"  
-    fi
+    echo 
 
     if [[ $1 == "v2ray" ]] ; then
-        # versionV2ray=$(getGithubLatestReleaseVersion "v2fly/v2ray-core")
+        echo
+        green " ================================================== "
+        green " 请选择 V2ray 的版本, 默认直接回车为 稳定版4.45.2 (推荐)"
+        green " 选否则安装最新版的 V2ray 5.1.0 User Preview"
+        echo
+        read -r -p "是否安装稳定版V2ray? 默认直接回车为稳定版4.45.2, 请输入[Y/n]:" isInstallXrayVersionInput
+        isInstallXrayVersionInput=${isInstallXrayVersionInput:-Y}
+        echo
+
+        if [[ $isInstallXrayVersionInput == [Yy] ]]; then
+            versionV2ray="4.45.2"
+        else
+            versionV2ray=$(getGithubLatestReleaseVersion "v2fly/v2ray-core")
+        fi
         echo "versionV2ray: ${versionV2ray}"
     fi
 
     if [[ $1 == "xray" ]] ; then
-        versionXray=$(getGithubLatestReleaseVersion "XTLS/Xray-core")
+        #versionXray=$(getGithubLatestReleaseVersion "XTLS/Xray-core")
         echo "versionXray: ${versionXray}"
     fi
+
 
     if [[ $1 == "trojan-web" ]] ; then
         versionTrojanWeb=$(getGithubLatestReleaseVersion "Jrohy/trojan")
@@ -1085,60 +1227,9 @@ function getTrojanAndV2rayVersion(){
 
 
 
+configNetworkRealIp=""
+configSSLDomain=""
 
-
-function compareRealIpWithLocalIp(){
-    echo
-    green " 是否检测域名指向的IP正确 直接回车默认检测"
-    red " 如果域名指向的IP不是本机IP, 或已开启CDN不方便关闭 或只有IPv6的VPS 可以选否不检测"
-    read -p "是否检测域名指向的IP正确? 请输入[Y/n]:" isDomainValidInput
-    isDomainValidInput=${isDomainValidInput:-Y}
-
-    if [[ $isDomainValidInput == [Yy] ]]; then
-        if [[ -n "$1" ]]; then
-            configNetworkRealIp=$(ping $1 -c 1 | sed '1{s/[^(]*(//;s/).*//;q}')
-            # https://unix.stackexchange.com/questions/22615/how-can-i-get-my-external-ip-address-in-a-shell-script
-            configNetworkLocalIp1="$(curl http://whatismyip.akamai.com/)"
-            configNetworkLocalIp2="$(curl https://checkip.amazonaws.com/)"
-            #configNetworkLocalIp3="$(curl https://ipv4.icanhazip.com/)"
-            #configNetworkLocalIp4="$(curl https://v4.ident.me/)"
-            #configNetworkLocalIp5="$(curl https://api.ip.sb/ip)"
-            #configNetworkLocalIp6="$(curl https://ipinfo.io/ip)"
-            
-            
-            #configNetworkLocalIPv61="$(curl https://ipv6.icanhazip.com/)"
-            #configNetworkLocalIPv62="$(curl https://v6.ident.me/)"
-
-
-            green " ================================================== "
-            green " 域名解析地址为 ${configNetworkRealIp}, 本VPS的IP为 ${configNetworkLocalIp1} "
-
-            echo
-            if [[ ${configNetworkRealIp} == "${configNetworkLocalIp1}" || ${configNetworkRealIp} == "${configNetworkLocalIp2}" ]] ; then
-
-                green " 域名解析的IP正常!"
-                green " ================================================== "
-                true
-            else
-                red " 域名解析地址与本VPS的IP地址不一致!"
-                red " 本次安装失败，请确保域名解析正常, 请检查域名和DNS是否生效!"
-                green " ================================================== "
-                false
-            fi
-        else
-            green " ================================================== "        
-            red "     域名输入错误!"
-            green " ================================================== "        
-            false
-        fi
-        
-    else
-        green " ================================================== "
-        green "     不检测域名解析是否正确!"
-        green " ================================================== "
-        true
-    fi
-}
 
 
 acmeSSLRegisterEmailInput=""
@@ -1162,19 +1253,20 @@ function getHTTPSCertificateCheckEmail(){
 }
 function getHTTPSCertificateInputEmail(){
     echo
-    read -p "请输入邮箱地址, 用于申请证书:" acmeSSLRegisterEmailInput
-    getHTTPSCertificateCheckEmail "email" ${acmeSSLRegisterEmailInput}
+    read -r -p "请输入邮箱地址, 用于申请SSL证书:" acmeSSLRegisterEmailInput
+    getHTTPSCertificateCheckEmail "email" "${acmeSSLRegisterEmailInput}"
 }
 function getHTTPSCertificateInputGoogleEABKey(){
     echo
-    read -p "请输入 Google EAB key :" isDomainSSLGoogleEABKeyInput
-    getHTTPSCertificateCheckEmail "googleEabKey" ${isDomainSSLGoogleEABKeyInput}
+    read -r -p "请输入 Google EAB key :" isDomainSSLGoogleEABKeyInput
+    getHTTPSCertificateCheckEmail "googleEabKey" "${isDomainSSLGoogleEABKeyInput}"
 }
 function getHTTPSCertificateInputGoogleEABId(){
     echo
-    read -p "请输入 Google EAB id :" isDomainSSLGoogleEABIdInput
-    getHTTPSCertificateCheckEmail "googleEabId" ${isDomainSSLGoogleEABIdInput}
+    read -r -p "请输入 Google EAB id :" isDomainSSLGoogleEABIdInput
+    getHTTPSCertificateCheckEmail "googleEabId" "${isDomainSSLGoogleEABIdInput}"
 }
+
 
 acmeSSLDays="89"
 acmeSSLServerName="letsencrypt"
@@ -1202,13 +1294,15 @@ function renewCertificationWithAcme(){
         echo
         green " ================================================== "
         green " 检测到本机已经申请过域名证书 是否新增申请域名证书"
-        green " 选是为新增申请域名证书, 选否为续签或删除已申请域名证书"
+        yellow " 新安装或卸载后重新安装trojan或v2ray 请选择新增而不要选择续签"
         echo
-        read -r -p "是否申请新的域名证书? 默认直接回车为新增域名, 请输入[Y/n]:" isAcmeSSLAddNewInput
-        isAcmeSSLAddNewInput=${isAcmeSSLAddNewInput:-Y}
-        if [[ "$isAcmeSSLAddNewInput" == [Yy] ]]; then
-            echo
-        else
+        green " 1. 新增申请域名证书"
+        green " 2. 续签已申请域名证书"
+        green " 3. 删除已申请域名证书"
+        echo
+        read -r -p "请选择是否新增域名证书? 默认直接回车为新增, 请输入纯数字:" isAcmeSSLAddNewInput
+        isAcmeSSLAddNewInput=${isAcmeSSLAddNewInput:-1}
+        if [[ "$isAcmeSSLAddNewInput" == "2" || "$isAcmeSSLAddNewInput" == "3" ]]; then
 
             echo
             green " ================================================== "
@@ -1239,41 +1333,41 @@ function renewCertificationWithAcme(){
                     exit
                 else
                     echo
-                fi            
+                fi
             else
                 echo
             fi
 
             configSSLRenewDomain=${renewDomainArrayFix[${isRenewDomainSelectNumberInput}]}
 
-            read -r -p "请选择续签还是删除? 默认直接回车为续签, 选n为删除域名, 请输入[Y/n]:" isAcmeSSLRenewInput
-            isAcmeSSLRenewInput=${isAcmeSSLRenewInput:-Y}
-            echo
 
             if [[ -n $(${configSSLAcmeScriptPath}/acme.sh --list | grep ${configSSLRenewDomain}) ]]; then
 
-                if [[ $isAcmeSSLRenewInput == [Yy] ]]; then
+                if [[ "$isAcmeSSLAddNewInput" == "2" ]]; then
                     ${configSSLAcmeScriptPath}/acme.sh --renew -d ${configSSLRenewDomain} --force --ecc
                     echo
                     green " 域名 ${configSSLRenewDomain} 的证书已经成功续签!"
 
-                else
+                elif [[ "$isAcmeSSLAddNewInput" == "3" ]]; then
                     ${configSSLAcmeScriptPath}/acme.sh --revoke -d ${configSSLRenewDomain} --ecc
                     ${configSSLAcmeScriptPath}/acme.sh --remove -d ${configSSLRenewDomain} --ecc
 
-                    rm -rf ${configSSLAcmeScriptPath}/acme.sh/${configSSLRenewDomain}_ecc
+                    rm -rf "${configSSLAcmeScriptPath}/${configSSLRenewDomain}_ecc"
                     echo
                     green " 域名 ${configSSLRenewDomain} 的证书已经删除成功!"
+                    exit
                 fi  
             else
                 echo
                 red " 域名 ${configSSLRenewDomain} 证书不存在！"
             fi
 
-            exit
-
+        else 
+            getHTTPSCertificateStep1
         fi
 
+    else
+        getHTTPSCertificateStep1
     fi
 
 }
@@ -1283,7 +1377,10 @@ function getHTTPSCertificateWithAcme(){
     # 申请https证书
 	mkdir -p ${configSSLCertPath}
 	mkdir -p ${configWebsitePath}
-	curl https://get.acme.sh | sh
+
+    getHTTPSCertificateInputEmail
+
+	curl https://get.acme.sh | sh -s email=${acmeSSLRegisterEmailInput}
 
 
     echo
@@ -1295,18 +1392,18 @@ function getHTTPSCertificateWithAcme(){
     green " 3 ZeroSSL.com "
     green " 4 Google Public CA "
     echo
-    read -p "请选择证书提供商? 默认直接回车为通过 Letsencrypt.org 申请, 请输入纯数字:" isDomainSSLFromLetInput
+    read -r -p "请选择证书提供商? 默认直接回车为通过 Letsencrypt.org 申请, 请输入纯数字:" isDomainSSLFromLetInput
     isDomainSSLFromLetInput=${isDomainSSLFromLetInput:-1}
     
     if [[ "$isDomainSSLFromLetInput" == "2" ]]; then
-        getHTTPSCertificateInputEmail
+        
         acmeSSLDays="179"
         acmeSSLServerName="buypass"
         echo
         ${configSSLAcmeScriptPath}/acme.sh --register-account --accountemail ${acmeSSLRegisterEmailInput} --server buypass
         
     elif [[ "$isDomainSSLFromLetInput" == "3" ]]; then
-        getHTTPSCertificateInputEmail
+        
         acmeSSLServerName="zerossl"
         echo
         ${configSSLAcmeScriptPath}/acme.sh --register-account -m ${acmeSSLRegisterEmailInput} --server zerossl
@@ -1315,7 +1412,7 @@ function getHTTPSCertificateWithAcme(){
         green " ================================================== "
         yellow " 请先按照如下链接申请 google Public CA  https://hostloc.com/thread-993780-1-1.html"
         yellow " 具体可参考 https://github.com/acmesh-official/acme.sh/wiki/Google-Public-CA"
-        getHTTPSCertificateInputEmail
+        
         acmeSSLServerName="google"
         getHTTPSCertificateInputGoogleEABKey
         getHTTPSCertificateInputGoogleEABId
@@ -1338,16 +1435,20 @@ function getHTTPSCertificateWithAcme(){
     if [[ $isAcmeSSLRequestMethodInput == [Yy] ]]; then
         acmeSSLHttpWebrootMode=""
 
+        if [[ -n "${configInstallNginxMode}" ]]; then
+            acmeDefaultValue="3"
+            acmeDefaultText="3. webroot 并使用ran作为临时的Web服务器"
+            acmeSSLHttpWebrootMode="webrootran"
+        else
+            acmeDefaultValue="1"
+            acmeDefaultText="1. standalone 模式"
+            acmeSSLHttpWebrootMode="standalone"
+        fi
+        
         if [ -z "$1" ]; then
+ 
+            checkPortUsage "80"
 
-            if [[ -n "${configInstallNginxMode}" ]]; then
-                acmeDefaultValue="3"
-                acmeDefaultText="3. webroot 并使用ran作为临时的Web服务器"
-            else
-                acmeDefaultValue="1"
-                acmeDefaultText="1. standalone 模式"
-            fi
-                    
             green " ================================================== "
             green " 请选择 http 申请证书方式: 默认直接回车为 ${acmeDefaultText} "
             green " 1 standalone 模式, 适合没有安装Web服务器, 如已选择不安装Nginx 请选择此模式. 请确保80端口不被占用. 注意:三个月后续签时80端口被占用会导致续签失败!"
@@ -1355,7 +1456,7 @@ function getHTTPSCertificateWithAcme(){
             green " 3 webroot 模式 并使用 ran 作为临时的Web服务器, 如已选择同时安装Nginx，请使用此模式, 可以正常续签"
             green " 4 nginx 模式 适合已经安装 Nginx, 请确保 Nginx 已经运行"
             echo
-            read -p "请选择http申请证书方式? 默认为 ${acmeDefaultText}, 请输入纯数字:" isAcmeSSLWebrootModeInput
+            read -r -p "请选择http申请证书方式? 默认为 ${acmeDefaultText}, 请输入纯数字:" isAcmeSSLWebrootModeInput
 
             isAcmeSSLWebrootModeInput=${isAcmeSSLWebrootModeInput:-${acmeDefaultValue}}
             
@@ -1507,14 +1608,66 @@ function getHTTPSCertificateWithAcme(){
 
 
 
+function compareRealIpWithLocalIp(){
+    echo
+    green " 是否检测域名指向的IP正确 直接回车默认检测"
+    red " 如果域名指向的IP不是本机IP, 或已开启CDN不方便关闭 或只有IPv6的VPS 可以选否不检测"
+    read -r -p "是否检测域名指向的IP正确? 请输入[Y/n]:" isDomainValidInput
+    isDomainValidInput=${isDomainValidInput:-Y}
+
+    if [[ $isDomainValidInput == [Yy] ]]; then
+        if [[ -n "$1" ]]; then
+            configNetworkRealIp=$(ping $1 -c 1 | sed '1{s/[^(]*(//;s/).*//;q}')
+            # https://unix.stackexchange.com/questions/22615/how-can-i-get-my-external-ip-address-in-a-shell-script
+            configNetworkLocalIp1="$(curl http://whatismyip.akamai.com/)"
+            configNetworkLocalIp2="$(curl https://checkip.amazonaws.com/)"
+            #configNetworkLocalIp3="$(curl https://ipv4.icanhazip.com/)"
+            #configNetworkLocalIp4="$(curl https://v4.ident.me/)"
+            #configNetworkLocalIp5="$(curl https://api.ip.sb/ip)"
+            #configNetworkLocalIp6="$(curl https://ipinfo.io/ip)"
+            
+            
+            #configNetworkLocalIPv61="$(curl https://ipv6.icanhazip.com/)"
+            #configNetworkLocalIPv62="$(curl https://v6.ident.me/)"
+
+
+            green " ================================================== "
+            green " 域名解析地址为 ${configNetworkRealIp}, 本VPS的IP为 ${configNetworkLocalIp1} "
+
+            echo
+            if [[ ${configNetworkRealIp} == "${configNetworkLocalIp1}" || ${configNetworkRealIp} == "${configNetworkLocalIp2}" ]] ; then
+
+                green " 域名解析的IP正常!"
+                green " ================================================== "
+                true
+            else
+                red " 域名解析地址与本VPS的IP地址不一致!"
+                red " 本次安装失败，请确保域名解析正常, 请检查域名和DNS是否生效!"
+                green " ================================================== "
+                false
+            fi
+        else
+            green " ================================================== "        
+            red "     域名输入错误!"
+            green " ================================================== "        
+            false
+        fi
+        
+    else
+        green " ================================================== "
+        green "     不检测域名解析是否正确!"
+        green " ================================================== "
+        true
+    fi
+}
+
+
 function getHTTPSCertificateStep1(){
     
-    renewCertificationWithAcme
-
     echo
     green " ================================================== "
     yellow " 请输入解析到本VPS的域名 例如 www.xxx.com: (此步骤请关闭CDN后和nginx后安装 避免80端口占用导致申请证书失败)"
-    read -p "请输入解析到本VPS的域名:" configSSLDomain
+    read -r -p "请输入解析到本VPS的域名:" configSSLDomain
 
     if compareRealIpWithLocalIp "${configSSLDomain}" ; then
         echo
@@ -1525,11 +1678,11 @@ function getHTTPSCertificateStep1(){
         red " ${configSSLDomain} 域名证书私钥文件路径 ${configSSLCertPath}/${configSSLCertKeyFilename} "
         echo
 
-        read -p "是否申请证书? 默认直接回车为自动申请证书,请输入[Y/n]:" isDomainSSLRequestInput
+        read -r -p "是否申请证书? 默认直接回车为自动申请证书,请输入[Y/n]:" isDomainSSLRequestInput
         isDomainSSLRequestInput=${isDomainSSLRequestInput:-Y}
 
         if [[ $isDomainSSLRequestInput == [Yy] ]]; then
-            getHTTPSCertificateWithAcme "$@"
+            getHTTPSCertificateWithAcme ""
         else
             green " =================================================="
             green " 不申请域名的证书, 请把证书放到如下目录, 或自行修改trojan或v2ray配置!"
@@ -1554,10 +1707,17 @@ function getHTTPSCertificateStep1(){
 
 
 
-
+wwwUsername="www-data"
+function createUserWWW(){
+	isHaveWwwUser=$(cat /etc/passwd | cut -d ":" -f 1 | grep ^${wwwUsername}$)
+	if [ "${isHaveWwwUser}" != "${wwwUsername}" ]; then
+		${sudoCmd} groupadd ${wwwUsername}
+		${sudoCmd} useradd -s /usr/sbin/nologin -g ${wwwUsername} ${wwwUsername} --no-create-home         
+	fi
+}
 
 function stopServiceNginx(){
-    serviceNginxStatus=`ps -aux | grep "nginx: worker" | grep -v "grep"`
+    serviceNginxStatus=$(ps -aux | grep "nginx: worker" | grep -v "grep")
     if [[ -n "$serviceNginxStatus" ]]; then
         ${sudoCmd} systemctl stop nginx.service
     fi
@@ -1567,7 +1727,11 @@ function stopServiceV2ray(){
     if [[ -f "${osSystemMdPath}v2ray.service" ]] || [[ -f "/etc/systemd/system/v2ray.service" ]] || [[ -f "/lib/systemd/system/v2ray.service" ]] ; then
         ${sudoCmd} systemctl stop v2ray.service
     fi
+    if [[ -f "${osSystemMdPath}xray.service" ]] || [[ -f "/etc/systemd/system/xray.service" ]] || [[ -f "/lib/systemd/system/xray.service" ]] ; then
+        ${sudoCmd} systemctl stop xray.service
+    fi    
 }
+
 
 
 function installWebServerNginx(){
@@ -1579,56 +1743,106 @@ function installWebServerNginx(){
     echo
 
     if test -s ${nginxConfigPath}; then
-        green " ================================================== "
-        red "     Nginx 已存在, 退出安装!"
-        green " ================================================== "
-        exit
-    fi
+        showHeaderRed "Nginx 已存在, 是否继续安装? " "Nginx already exists. Continue the installation? "
+        promptContinueOpeartion
 
-    stopServiceV2ray
-
-	wwwUsername="www-data"
-	isHaveWwwUser=$(cat /etc/passwd|cut -d ":" -f 1|grep ^www-data$)
-	if [ "${isHaveWwwUser}" != "${wwwUsername}" ]; then
-		${sudoCmd} groupadd ${wwwUsername}
-		${sudoCmd} useradd -s /usr/sbin/nologin -g ${wwwUsername} ${wwwUsername} --no-create-home         
-	fi
-
-    ${sudoCmd} chown -R ${wwwUsername}:${wwwUsername} ${configWebsiteFatherPath}
-    ${sudoCmd} chmod -R 774 ${configWebsiteFatherPath}
-
-    if [ "$osRelease" == "centos" ]; then
-        ${osSystemPackage} install -y nginx-mod-stream
+        ${sudoCmd} systemctl stop nginx.service
     else
-        echo
-        #${osSystemPackage} install -y libnginx-mod-stream
+        stopServiceV2ray
+
+        createUserWWW
+        nginxUser="${wwwUsername} ${wwwUsername}"
+
+
+        if [ "$osRelease" == "centos" ]; then
+            ${osSystemPackage} install -y nginx-mod-stream
+        else
+            echo
+            groupadd -r -g 4 adm
+
+            apt autoremove -y
+            apt-get remove --purge -y nginx-common
+            apt-get remove --purge -y nginx-core
+            apt-get remove --purge -y libnginx-mod-stream
+            apt-get remove --purge -y libnginx-mod-http-xslt-filter libnginx-mod-http-geoip2 libnginx-mod-stream-geoip2 libnginx-mod-mail libnginx-mod-http-image-filter
+
+            apt autoremove -y --purge nginx nginx-common nginx-core
+            apt-get remove --purge -y nginx nginx-full nginx-common nginx-core
+
+            #${osSystemPackage} install -y libnginx-mod-stream
+        fi
+
+        ${osSystemPackage} install -y nginx
+        ${sudoCmd} systemctl enable nginx.service
+        ${sudoCmd} systemctl stop nginx.service
+
+        # 解决出现的nginx warning 错误 Failed to parse PID from file /run/nginx.pid: Invalid argument
+        # https://www.kancloud.cn/tinywan/nginx_tutorial/753832
+        
+        mkdir -p /etc/systemd/system/nginx.service.d
+        printf "[Service]\nExecStartPost=/bin/sleep 0.1\n" > /etc/systemd/system/nginx.service.d/override.conf
+        
+        ${sudoCmd} systemctl daemon-reload
+
     fi
 
-    ${osSystemPackage} install -y nginx
-    ${sudoCmd} systemctl enable nginx.service
-    ${sudoCmd} systemctl stop nginx.service
 
-    # 解决出现的nginx warning 错误 Failed to parse PID from file /run/nginx.pid: Invalid argument
-    # https://www.kancloud.cn/tinywan/nginx_tutorial/753832
-    
-    mkdir -p /etc/systemd/system/nginx.service.d
-    printf "[Service]\nExecStartPost=/bin/sleep 0.1\n" > /etc/systemd/system/nginx.service.d/override.conf
-    
-    ${sudoCmd} systemctl daemon-reload
-    
 
+    
+    mkdir -p ${configWebsitePath}
+    mkdir -p "${nginxConfigSiteConfPath}"
 
 
     nginxConfigServerHttpInput=""
+    nginxConfigServerHttpGrpcInput=""
     nginxConfigStreamConfigInput=""
     nginxConfigNginxModuleInput=""
+    nginxConfigDefaultWebsiteLocation=""
+
+    echo
+    green " =================================================="
+    green " 是否反代指定的网站? 默认不反代网站, 使用bootstrap静态网页作为伪装网站)"
+    green " 如需要反代网站 请输入网址 例如 www.baidu.com (不要输入https://)"
+    echo
+    read -r -p "是否反代指定的网站, 默认直接回车不反代, 请输入反代网址:" configNginxDefaultWebsiteInput
+    configNginxDefaultWebsiteInput=${configNginxDefaultWebsiteInput:-}
+
+        if [[ -n "${configNginxDefaultWebsiteInput}" ]]; then
+            read -r -d '' nginxConfigDefaultWebsiteLocation << EOM
+
+        location / {
+            proxy_pass https://$configNginxDefaultWebsiteInput;
+
+        }
+
+EOM
+
+        fi
 
     if [[ "${configInstallNginxMode}" == "noSSL" ]]; then
         if [[ ${configV2rayWorkingNotChangeMode} == "true" ]]; then
             inputV2rayStreamSettings
         fi
 
-        read -r -d '' nginxConfigServerHttpInput << EOM
+        if [[ "${configV2rayStreamSetting}" == "grpc" || "${configV2rayStreamSetting}" == "wsgrpc" ]]; then
+            read -r -d '' nginxConfigServerHttpGrpcInput << EOM
+
+        location /$configV2rayGRPCServiceName {
+            grpc_pass grpc://127.0.0.1:$configV2rayGRPCPort;
+            grpc_connect_timeout 60s;
+            grpc_read_timeout 720m;
+            grpc_send_timeout 720m;
+            grpc_set_header X-Real-IP \$remote_addr;
+            grpc_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        }
+
+        
+
+EOM
+
+        fi
+
+        cat > "${nginxConfigSiteConfPath}/nossl_site.conf" <<-EOF
     server {
         listen       80;
         server_name  $configSSLDomain;
@@ -1646,22 +1860,18 @@ function installWebServerNginx(){
             proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
         }
 
-        location /$configV2rayGRPCServiceName {
-            grpc_pass grpc://127.0.0.1:$configV2rayGRPCPort;
-            grpc_connect_timeout 60s;
-            grpc_read_timeout 720m;
-            grpc_send_timeout 720m;
-            grpc_set_header X-Real-IP \$remote_addr;
-            grpc_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
-        }  
+        ${nginxConfigServerHttpGrpcInput}
+
+        ${nginxConfigDefaultWebsiteLocation}
     }
 
-EOM
+EOF
+
 
     elif [[ "${configInstallNginxMode}" == "v2raySSL" ]]; then
         inputV2rayStreamSettings
 
-        read -r -d '' nginxConfigServerHttpInput << EOM
+        cat > "${nginxConfigSiteConfPath}/v2rayssl_site.conf" <<-EOF
     server {
         listen 443 ssl http2;
         listen [::]:443 http2;
@@ -1699,6 +1909,8 @@ EOM
             grpc_set_header X-Real-IP \$remote_addr;
             grpc_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
         }
+
+        ${nginxConfigDefaultWebsiteLocation}
     }
 
     server {
@@ -1708,7 +1920,8 @@ EOM
         return 301 https://$configSSLDomain\$request_uri;
     }
 
-EOM
+EOF
+
 
     elif [[ "${configInstallNginxMode}" == "sni" ]]; then
 
@@ -1718,6 +1931,7 @@ load_module /usr/lib64/nginx/modules/ngx_stream_module.so;
 EOM
         else
         read -r -d '' nginxConfigNginxModuleInput << EOM
+include /etc/nginx/modules-enabled/*.conf;
 # load_module /usr/lib/nginx/modules/ngx_stream_module.so;
 EOM
         fi
@@ -1805,7 +2019,7 @@ EOM
         fi
 
 
-        read -r -d '' nginxConfigServerHttpInput << EOM
+        cat > "${nginxConfigSiteConfPath}/sni_site.conf" <<-EOF
     server {
         listen       80;
         server_name  $nginxConfigStreamFakeWebsiteDomainInput;
@@ -1816,7 +2030,7 @@ EOM
 
     ${nginxConfigStreamOwnWebsiteInput}
 
-EOM
+EOF
 
 
         read -r -d '' nginxConfigStreamConfigInput << EOM
@@ -1848,7 +2062,7 @@ EOM
 
     elif [[ "${configInstallNginxMode}" == "trojanWeb" ]]; then
 
-        read -r -d '' nginxConfigServerHttpInput << EOM
+        cat > "${nginxConfigSiteConfPath}/trojanweb_site.conf" <<-EOF
     server {
         listen       80;
         server_name  $configSSLDomain;
@@ -1875,23 +2089,24 @@ EOM
         }
     }
 
-EOM
+EOF
 
     else
-
         echo
-
     fi
 
 
-        cat > "${nginxConfigPath}" <<-EOF
+
+    cat > "${nginxConfigPath}" <<-EOF
 
 ${nginxConfigNginxModuleInput}
 
-user  ${wwwUsername} ${wwwUsername};
+# user  ${nginxUser};
+user root;
 worker_processes  1;
 error_log  /var/log/nginx/error.log warn;
 pid        /var/run/nginx.pid;
+
 events {
     worker_connections  1024;
 }
@@ -1916,12 +2131,11 @@ http {
     gzip  on;
 
 
-    ${nginxConfigServerHttpInput}
-
+    include ${nginxConfigSiteConfPath}/*.conf; 
 }
 
-
 EOF
+
 
 
 
@@ -1931,7 +2145,6 @@ EOF
     mkdir -p ${configWebsiteDownloadPath}
 
     downloadAndUnzip "https://github.com/jinwyp/one_click_script/raw/master/download/website2.zip" "${configWebsitePath}" "website2.zip"
-
 
     if [ "${configInstallNginxMode}" != "trojanWeb" ] ; then
         wget -P "${configWebsiteDownloadPath}" "https://github.com/jinwyp/one_click_script/raw/master/download/trojan-mac.zip"
@@ -2015,18 +2228,16 @@ EOF
 function removeNginx(){
 
     echo
-    read -p "是否确认卸载Nginx? 直接回车默认卸载, 请输入[Y/n]:" isRemoveNginxServerInput
+    read -r -p "是否确认卸载Nginx? 直接回车默认卸载, 请输入[Y/n]:" isRemoveNginxServerInput
     isRemoveNginxServerInput=${isRemoveNginxServerInput:-Y}
 
     if [[ "${isRemoveNginxServerInput}" == [Yy] ]]; then
 
-
         echo
         if [[ -f "${nginxConfigPath}" ]]; then
-            green " ================================================== "
-            red " 准备卸载已安装的nginx"
-            green " ================================================== "
-            echo
+
+            showHeaderRed "准备卸载已安装的nginx"
+
 
             ${sudoCmd} systemctl stop nginx.service
             ${sudoCmd} systemctl disable nginx.service
@@ -2035,7 +2246,12 @@ function removeNginx(){
                 yum remove -y nginx-mod-stream
                 yum remove -y nginx
             else
+                apt autoremove -y
+                apt-get remove --purge -y nginx-common
+                apt-get remove --purge -y nginx-core
                 apt-get remove --purge -y libnginx-mod-stream
+                apt-get remove --purge -y libnginx-mod-http-xslt-filter libnginx-mod-http-geoip2 libnginx-mod-stream-geoip2 libnginx-mod-mail libnginx-mod-http-image-filter
+
                 apt autoremove -y --purge nginx nginx-common nginx-core
                 apt-get remove --purge -y nginx nginx-full nginx-common nginx-core
             fi
@@ -2044,14 +2260,16 @@ function removeNginx(){
             rm -f ${nginxAccessLogFilePath}
             rm -f ${nginxErrorLogFilePath}
             rm -f ${nginxConfigPath}
+            rm -rf ${nginxConfigSiteConfPath}
 
             rm -f ${configReadme}
+
             rm -rf "/etc/nginx"
             
             rm -rf ${configDownloadTempPath}
 
             echo
-            read -p "是否删除证书 和 卸载acme.sh申请证书工具, 由于一天内申请证书有次数限制, 默认建议不删除证书,  请输入[y/N]:" isDomainSSLRemoveInput
+            read -r -p "是否删除证书 和 卸载acme.sh申请证书工具, 由于一天内申请证书有次数限制, 默认建议不删除证书,  请输入[y/N]:" isDomainSSLRemoveInput
             isDomainSSLRemoveInput=${isDomainSSLRemoveInput:-n}
 
             
@@ -2059,20 +2277,16 @@ function removeNginx(){
                 rm -rf ${configWebsiteFatherPath}
                 ${sudoCmd} bash ${configSSLAcmeScriptPath}/acme.sh --uninstall
                 
-                echo
-                green " ================================================== "
-                green "  Nginx 卸载完毕, SSL 证书文件已删除!"
+                showHeaderGreen "Nginx 卸载完毕, SSL 证书文件已删除!"
                 
             else
                 rm -rf ${configWebsitePath}
-                echo
-                green " ================================================== "
-                green "  Nginx 卸载完毕, 已保留 SSL 证书文件 到 ${configSSLCertPath} "
+
+                showHeaderGreen "Nginx 卸载完毕, 已保留 SSL 证书文件 到 ${configSSLCertPath} "
             fi
 
-            green " ================================================== "
         else
-            red " 系统没有安装 nginx, 退出卸载"
+            showHeaderRed "系统没有安装 Nginx, 退出卸载"
         fi
         echo
 
@@ -2149,7 +2363,7 @@ function checkNginxSNIDomain(){
         isDomainSSLRequestInput=${isDomainSSLRequestInput:-Y}
 
         if [[ $isDomainSSLRequestInput == [Yy] ]]; then
-            getHTTPSCertificateWithAcme "$@"
+            getHTTPSCertificateWithAcme ""
         else
             green " =================================================="
             green " 不申请域名的证书, 请把证书放到如下目录, 或自行修改trojan或v2ray配置!"
@@ -2215,19 +2429,21 @@ function installTrojanV2rayWithNginx(){
 
     echo
     if [ "$1" = "v2ray" ]; then
-        read -p "是否不申请域名的证书 直接使用本VPS的IP安装? 默认直接回车为不申请证书,请输入[Y/n]:" isDomainIPRequestInput
+        read -r -p "是否不申请域名的证书 直接使用本VPS的IP安装? 默认直接回车为不申请证书,请输入[Y/n]:" isDomainIPRequestInput
         isDomainIPRequestInput=${isDomainIPRequestInput:-Y}
 
         if [[ $isDomainIPRequestInput == [Yy] ]]; then
             echo
-            read -p "请输入本VPS的IP 或 解析到本VPS的域名:" configSSLDomain
+            read -r -p "请输入本VPS的IP 或 解析到本VPS的域名:" configSSLDomain
             installV2ray
             exit
         fi
 
     elif [ "$1" = "nginxSNI_trojan_v2ray" ]; then
         green " ================================================== "
-        green " 请选择 Nginx SNI + Trojan + V2ray 的安装模式, 默认为1"
+        yellow " 请选择 Nginx SNI + Trojan + V2ray 的安装模式, 默认为1"
+        red " 必须使用不同的2个或3个域名,并设置好DNS解析,否则无法申请SSL证书"
+        echo
         green " 1. Nginx + Trojan + V2ray + 伪装网站"
         green " 2. Nginx + Trojan + 伪装网站"
         green " 3. Nginx + V2ray + 伪装网站"
@@ -2235,7 +2451,7 @@ function installTrojanV2rayWithNginx(){
         green " 5. Nginx + Trojan + 已有网站共存"
         green " 6. Nginx + V2ray + 已有网站共存"
 
-
+        echo 
         read -p "请选择 Nginx SNI 的安装模式 直接回车默认选1, 请输入纯数字:" isNginxSNIModeInput
         isNginxSNIModeInput=${isNginxSNIModeInput:-1}
 
@@ -2285,12 +2501,11 @@ function installTrojanV2rayWithNginx(){
             
         fi
 
-
         exit
     fi
 
-    inputXraySystemdServiceName $1
-    getHTTPSCertificateStep1 "$@"
+    inputXraySystemdServiceName "$1"
+    renewCertificationWithAcme ""
 
     echo
     if test -s ${configSSLCertPath}/${configSSLCertFullchainFilename}; then
@@ -2316,7 +2531,7 @@ function installTrojanV2rayWithNginx(){
         elif [ "$1" = "v2ray_nginxOptional" ]; then
             echo
             green " 是否安装 Nginx 用于提供伪装网站, 如果已有网站或搭配宝塔面板请选择N不安装"
-            read -p "是否确安装Nginx伪装网站? 直接回车默认安装, 请输入[Y/n]:" isInstallNginxServerInput
+            read -r -p "是否确安装Nginx伪装网站? 直接回车默认安装, 请输入[Y/n]:" isInstallNginxServerInput
             isInstallNginxServerInput=${isInstallNginxServerInput:-Y}
 
             if [[ "${isInstallNginxServerInput}" == [Yy] ]]; then
@@ -2338,7 +2553,6 @@ function installTrojanV2rayWithNginx(){
 
         else
             echo
-            
         fi
     else
         red " ================================================== "
@@ -2370,82 +2584,116 @@ function installTrojanV2rayWithNginx(){
 
 
 
-function downloadTrojanBin(){
 
-    if [ "${isTrojanGo}" = "no" ] ; then
-        if [ -z $1 ]; then
-            tempDownloadTrojanPath="${configTrojanPath}"
-        else
-            tempDownloadTrojanPath="${configDownloadTempPath}/upgrade/trojan"
-            mv -f ${configDownloadTempPath}/upgrade/trojan/trojan ${configTrojanPath}
-        fi    
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function getTrojanGoVersion(){
+
+    if [[ "${isTrojanTypeInput}" == "1" ]]; then
+        versionTrojan=$(getGithubLatestReleaseVersion "trojan-gfw/trojan")
+        downloadFilenameTrojan="trojan-${versionTrojan}-linux-amd64.tar.xz"
+        echo "versionTrojan: ${versionTrojan}"
+        configTrojanBaseVersion=${versionTrojan}
+        configTrojanBasePath="${configTrojanPath}"
+        promptInfoTrojanName=""
+
+    elif [[ "${isTrojanTypeInput}" == "2" ]]; then
+        versionTrojanGo=$(getGithubLatestReleaseVersion "p4gefau1t/trojan-go")
+        echo "versionTrojanGo: ${versionTrojanGo}"
+        configTrojanBaseVersion=${versionTrojanGo}
+        configTrojanBasePath="${configTrojanGoPath}"
+        promptInfoTrojanName="-go"
+
+    elif [[ "${isTrojanTypeInput}" == "3" ]]; then
+        versionTrojanGo=$(getGithubLatestReleaseVersion "fregie/trojan-go")
+        echo "versionTrojanGo: ${versionTrojanGo}"
+        configTrojanBaseVersion=${versionTrojanGo}
+        configTrojanBasePath="${configTrojanGoPath}"
+        promptInfoTrojanName="-go"
+
+    else
+        #versionTrojanGo=$(getGithubLatestReleaseVersion "Potterli20/trojan-go-fork")
+        versionTrojanGo="V2022.10.17"
+        echo "versionTrojanGo: ${versionTrojanGo}"
+        configTrojanBaseVersion=${versionTrojanGo}
+        configTrojanBasePath="${configTrojanGoPath}"
+        promptInfoTrojanName="-go"
+
+    fi
+}
+
+function downloadTrojanBin(){
+    
+    if [[ ${osArchitecture} == "arm" ]] ; then
+        downloadFilenameTrojanGo="trojan-go-linux-arm.zip"
+    fi
+    if [[ ${osArchitecture} == "arm64" ]] ; then
+        downloadFilenameTrojanGo="trojan-go-linux-armv8.zip"
+    fi
+
+    if [[ "${isTrojanTypeInput}" == "1" ]]; then
         # https://github.com/trojan-gfw/trojan/releases/download/v1.16.0/trojan-1.16.0-linux-amd64.tar.xz
         if [[ ${osArchitecture} == "arm" || ${osArchitecture} == "arm64" ]] ; then
             red "Trojan not support arm on linux! "
             exit
         fi
+        downloadAndUnzip "https://github.com/trojan-gfw/trojan/releases/download/v${versionTrojan}/${downloadFilenameTrojan}" "${configTrojanBasePath}" "${downloadFilenameTrojan}"
+        mv -f ${configTrojanBasePath}/trojan ${configTrojanBasePath}/trojan-temp
+        mv -f ${configTrojanBasePath}/trojan-temp/* ${configTrojanBasePath}/
 
-        downloadAndUnzip "https://github.com/trojan-gfw/trojan/releases/download/v${versionTrojan}/${downloadFilenameTrojan}" "${tempDownloadTrojanPath}" "${downloadFilenameTrojan}"
-    else
-        if [ -z $1 ]; then
-            tempDownloadTrojanPath="${configTrojanGoPath}"
-        else
-            tempDownloadTrojanPath="${configDownloadTempPath}/upgrade/trojan-go"
-            mv -f ${configDownloadTempPath}/upgrade/trojan-go/trojan-go ${configTrojanGoPath}
-        fi 
 
+    elif [[ "${isTrojanTypeInput}" == "2" ]]; then
         # https://github.com/p4gefau1t/trojan-go/releases/download/v0.10.6/trojan-go-linux-amd64.zip
+        downloadAndUnzip "https://github.com/p4gefau1t/trojan-go/releases/download/v${versionTrojanGo}/${downloadFilenameTrojanGo}" "${configTrojanBasePath}" "${downloadFilenameTrojanGo}"
+    
+    elif [[ "${isTrojanTypeInput}" == "3" ]]; then
+        # https://github.com/fregie/trojan-go/releases/download/v1.0.5/trojan-go-linux-amd64.zip
+        downloadAndUnzip "https://github.com/fregie/trojan-go/releases/download/v${versionTrojanGo}/${downloadFilenameTrojanGo}" "${configTrojanBasePath}" "${downloadFilenameTrojanGo}"
+        
+    else
+        downloadFilenameTrojanGo="trojan-go-fork-linux-amd64.zip"
         if [[ ${osArchitecture} == "arm" ]] ; then
-            downloadFilenameTrojanGo="trojan-go-linux-arm.zip"
+            downloadFilenameTrojanGo="trojan-go-fork-linux-arm.zip"
         fi
         if [[ ${osArchitecture} == "arm64" ]] ; then
-            downloadFilenameTrojanGo="trojan-go-linux-armv8.zip"
+            downloadFilenameTrojanGo="trojan-go-fork-linux-armv8.zip"
         fi
-        downloadAndUnzip "https://github.com/p4gefau1t/trojan-go/releases/download/v${versionTrojanGo}/${downloadFilenameTrojanGo}" "${tempDownloadTrojanPath}" "${downloadFilenameTrojanGo}"
-    fi 
-}
-
-function checkTrojanGoInstall(){
-    if [ -f "${configTrojanPath}/trojan" ] ; then
-        configTrojanBasePath="${configTrojanPath}"
-        promptInfoTrojanName=""
-        isTrojanGo="no"
-    fi
-
-    if [ -f "${configTrojanGoPath}/trojan-go" ] ; then
-        configTrojanBasePath="${configTrojanGoPath}"
-        promptInfoTrojanName="-go"
-        isTrojanGo="yes"
-    fi
-
-    if [ -n "$1" ] ; then
-        if [[ -f "${configTrojanBasePath}/trojan${promptInfoTrojanName}" ]]; then
-            green " =================================================="
-            green "  已安装过 Trojan${promptInfoTrojanName} , 退出安装 !"
-            green " =================================================="
-            exit
-        fi
+        # https://github.com/Potterli20/trojan-go-fork/releases/download/V2022.10.17/trojan-go-fork-linux-amd64.zip
+        downloadAndUnzip "https://github.com/Potterli20/trojan-go-fork/releases/download/${versionTrojanGo}/${downloadFilenameTrojanGo}" "${configTrojanBasePath}" "${downloadFilenameTrojanGo}"
+        mv -f ${configTrojanBasePath}/trojan-go-fork ${configTrojanBasePath}/trojan-go
     fi
 
 }
 
-function getTrojanGoInstallInfo(){
-    if [ "${isTrojanGo}" = "yes" ] ; then
-        getTrojanAndV2rayVersion "trojan-go"
-        configTrojanBaseVersion=${versionTrojanGo}
-        configTrojanBasePath="${configTrojanGoPath}"
-        promptInfoTrojanName="-go"
-    else
-        getTrojanAndV2rayVersion "trojan"
-        configTrojanBaseVersion=${versionTrojan}
-        configTrojanBasePath="${configTrojanPath}"
-        promptInfoTrojanName=""
-    fi
-}
-
-
-function installTrojanServer(){
-
+function generateTrojanPassword(){
     trojanPassword1=$(cat /dev/urandom | head -1 | md5sum | head -c 10)
     trojanPassword2=$(cat /dev/urandom | head -1 | md5sum | head -c 10)
     trojanPassword3=$(cat /dev/urandom | head -1 | md5sum | head -c 10)
@@ -2456,52 +2704,85 @@ function installTrojanServer(){
     trojanPassword8=$(cat /dev/urandom | head -1 | md5sum | head -c 10)
     trojanPassword9=$(cat /dev/urandom | head -1 | md5sum | head -c 10)
     trojanPassword10=$(cat /dev/urandom | head -1 | md5sum | head -c 10)
+}
 
+function installTrojanServer(){
 
-
-    checkTrojanGoInstall "exitInfo"
-
-    if [ "${isTrojanGoSupportWebsocket}" = "true" ] ; then
-        isTrojanGo="yes"
-    else
-        echo
+    if [[ -f "${configTrojanPath}/trojan" ]]; then
         green " =================================================="
-        green " 请选择安装 trojan-go 还是 原版trojan, 选Y为安装trojan-go, 选N为安装原版trojan"
-        read -p "请选择安装trojan-go 还是 原版trojan? 直接回车默认为trojan-go, 请输入[Y/n]:" isInstallTrojanTypeInput
-        isInstallTrojanTypeInput=${isInstallTrojanTypeInput:-Y}
-
-        if [[ "${isInstallTrojanTypeInput}" == [Yy] ]]; then
-            isTrojanGo="yes"
-
-            echo
-            green " 请选择是否开启 trojan-go 的 Websocket 用于CDN中转, 注意原版trojan客户端不支持 Websocket"
-            read -p "请选择是否开启 Websocket? 直接回车默认开启, 请输入[Y/n]:" isTrojanGoWebsocketInput
-            isTrojanGoWebsocketInput=${isTrojanGoWebsocketInput:-Y}
-
-            if [[ "${isTrojanGoWebsocketInput}" == [Yy] ]]; then
-                isTrojanGoSupportWebsocket="true"
-            else
-                isTrojanGoSupportWebsocket="false"
-            fi
-
-        else
-            isTrojanGo="no"
-        fi
-
+        red "  已安装过 Trojan, 退出安装 !"
+        red "  Trojan already installed !"
+        green " =================================================="
+        exit
     fi
 
-    getTrojanGoInstallInfo
+    if [[ -f "${configTrojanGoPath}/trojan-go" ]]; then
+        green " =================================================="
+        red "  已安装过 Trojan-go, 退出安装 !"
+        red "  Trojan-go already installed !"
+        green " =================================================="
+        exit
+    fi
 
-    green " =================================================="
-    green " 开始安装 Trojan${promptInfoTrojanName} Version: ${configTrojanBaseVersion} !"
-    green " =================================================="
+
+    generateTrojanPassword
+
+
     echo
-    yellow " 请输入 trojan${promptInfoTrojanName} 密码的前缀? (会生成若干随机密码和带有该前缀的密码)"
-    
-    read -p "请输入密码的前缀, 直接回车默认随机生成前缀:" configTrojanPasswordPrefixInput
+    green " =================================================="
+    green " 请选择安装 Trojan 或 Trojan-go ? 默认选择4 修改版Trojan-go "
+    echo
+    green " 1 原版 Trojan 不支持 websocket (not support websocket)"
+    green " 2 原版 Trojan-go 支持 websocket (support websocket)"
+    green " 3 修改版 Trojan-go 支持 websocket by fregie (support websocket)"
+    green " 4 修改版 Trojan-go 支持模拟浏览器指纹 支持 websocket by Potterli20 (support websocket)"
+    echo
+    read -r -p "请选择哪种 Trojan ? 直接回车默认选4, 请输入纯数字:" isTrojanTypeInput
+    isTrojanTypeInput=${isTrojanTypeInput:-4}
+
+    if [[ "${isTrojanTypeInput}" == "1" ]]; then
+        trojanInstallType="1"
+    elif [[ "${isTrojanTypeInput}" == "2" ]]; then
+        trojanInstallType="2"
+    elif [[ "${isTrojanTypeInput}" == "3" ]]; then
+        trojanInstallType="3"
+    else
+        trojanInstallType="4"
+    fi
+
+    if [[ "${trojanInstallType}" != "1" ]]; then
+        echo
+        green " =================================================="
+        green " Enable Websocket or not, default is Y"
+        green " 是否开启 Websocket 用于CDN中转, 注意原版trojan客户端不支持 Websocket"
+        echo
+        read -r -p "请选择是否开启 Websocket? 直接回车默认开启, 请输入[Y/n]:" isTrojanGoWebsocketInput
+        isTrojanGoWebsocketInput=${isTrojanGoWebsocketInput:-Y}
+
+        if [[ "${isTrojanGoWebsocketInput}" == [Yy] ]]; then
+            isTrojanGoSupportWebsocket="true"
+        else
+            isTrojanGoSupportWebsocket="false"
+        fi
+    fi
+
+    echo
+    getTrojanGoVersion
+    echo
+
+
+    showHeaderGreen " 开始安装 Trojan${promptInfoTrojanName} Version: ${configTrojanBaseVersion} !"
+    echo
+    green " =================================================="
+    green " Input trojan${promptInfoTrojanName} password prefix, default is ramdom char: "
+    green " 请输入 trojan${promptInfoTrojanName} 密码的前缀? (会生成若干随机密码和带有该前缀的密码)"
+    echo
+
+    read -r -p "请输入密码的前缀, 直接回车默认随机生成前缀:" configTrojanPasswordPrefixInput
     configTrojanPasswordPrefixInput=${configTrojanPasswordPrefixInput:-${configTrojanPasswordPrefixInputDefault}}
 
-
+    echo
+    echo
     if [[ "$configV2rayWorkingMode" != "trojan" && "$configV2rayWorkingMode" != "sni" ]] ; then
         configV2rayTrojanPort=443
 
@@ -2509,19 +2790,24 @@ function installTrojanServer(){
         configV2rayTrojanPort=${isTrojanUserPortInput}         
     fi
 
+    configV2rayTrojanReadmePort=${configV2rayTrojanPort}    
+
     if [[ "$configV2rayWorkingMode" == "sni" ]] ; then
         configSSLCertPath="${configNginxSNIDomainTrojanCertPath}"
-        configSSLDomain=${configNginxSNIDomainTrojan}    
+        configSSLDomain=${configNginxSNIDomainTrojan}   
+
+        configV2rayTrojanReadmePort=443 
     fi
 
-    mkdir -p ${configTrojanBasePath}
-    cd ${configTrojanBasePath}
-    rm -rf ${configTrojanBasePath}/*
+    rm -rf "${configTrojanBasePath}"
+    mkdir -p "${configTrojanBasePath}"
+    cd "${configTrojanBasePath}" || exit
 
+    echo
     downloadTrojanBin
 
     if [ "${isTrojanMultiPassword}" = "no" ] ; then
-    read -r -d '' trojanConfigUserpasswordInput << EOM
+        read -r -d '' trojanConfigUserpasswordInput << EOM
         "${trojanPassword1}",
         "${trojanPassword2}",
         "${trojanPassword3}",
@@ -2532,31 +2818,21 @@ function installTrojanServer(){
         "${trojanPassword8}",
         "${trojanPassword9}",
         "${trojanPassword10}",
-        "${configTrojanPasswordPrefixInput}202001",
-        "${configTrojanPasswordPrefixInput}202002",
-        "${configTrojanPasswordPrefixInput}202003",
-        "${configTrojanPasswordPrefixInput}202004",
-        "${configTrojanPasswordPrefixInput}202005",
-        "${configTrojanPasswordPrefixInput}202006",
-        "${configTrojanPasswordPrefixInput}202007",
-        "${configTrojanPasswordPrefixInput}202008",
-        "${configTrojanPasswordPrefixInput}202009",
-        "${configTrojanPasswordPrefixInput}202010",
-        "${configTrojanPasswordPrefixInput}202011",
-        "${configTrojanPasswordPrefixInput}202012",
-        "${configTrojanPasswordPrefixInput}202013",
-        "${configTrojanPasswordPrefixInput}202014",
-        "${configTrojanPasswordPrefixInput}202015",
-        "${configTrojanPasswordPrefixInput}202016",
-        "${configTrojanPasswordPrefixInput}202017",
-        "${configTrojanPasswordPrefixInput}202018",
-        "${configTrojanPasswordPrefixInput}202019",
-        "${configTrojanPasswordPrefixInput}202020"
+        "${configTrojanPasswordPrefixInput}202201",
+        "${configTrojanPasswordPrefixInput}202202",
+        "${configTrojanPasswordPrefixInput}202203",
+        "${configTrojanPasswordPrefixInput}202204",
+        "${configTrojanPasswordPrefixInput}202205",
+        "${configTrojanPasswordPrefixInput}202206",
+        "${configTrojanPasswordPrefixInput}202207",
+        "${configTrojanPasswordPrefixInput}202208",
+        "${configTrojanPasswordPrefixInput}202209",
+        "${configTrojanPasswordPrefixInput}202210"
 EOM
 
     else
 
-    read -r -d '' trojanConfigUserpasswordInput << EOM
+        read -r -d '' trojanConfigUserpasswordInput << EOM
         "${trojanPassword1}",
         "${trojanPassword2}",
         "${trojanPassword3}",
@@ -2567,106 +2843,106 @@ EOM
         "${trojanPassword8}",
         "${trojanPassword9}",
         "${trojanPassword10}",
-        "${configTrojanPasswordPrefixInput}202000",
-        "${configTrojanPasswordPrefixInput}202001",
-        "${configTrojanPasswordPrefixInput}202002",
-        "${configTrojanPasswordPrefixInput}202003",
-        "${configTrojanPasswordPrefixInput}202004",
-        "${configTrojanPasswordPrefixInput}202005",
-        "${configTrojanPasswordPrefixInput}202006",
-        "${configTrojanPasswordPrefixInput}202007",
-        "${configTrojanPasswordPrefixInput}202008",
-        "${configTrojanPasswordPrefixInput}202009",
-        "${configTrojanPasswordPrefixInput}202010",
-        "${configTrojanPasswordPrefixInput}202011",
-        "${configTrojanPasswordPrefixInput}202012",
-        "${configTrojanPasswordPrefixInput}202013",
-        "${configTrojanPasswordPrefixInput}202014",
-        "${configTrojanPasswordPrefixInput}202015",
-        "${configTrojanPasswordPrefixInput}202016",
-        "${configTrojanPasswordPrefixInput}202017",
-        "${configTrojanPasswordPrefixInput}202018",
-        "${configTrojanPasswordPrefixInput}202019",
-        "${configTrojanPasswordPrefixInput}202020",
-        "${configTrojanPasswordPrefixInput}202021",
-        "${configTrojanPasswordPrefixInput}202022",
-        "${configTrojanPasswordPrefixInput}202023",
-        "${configTrojanPasswordPrefixInput}202024",
-        "${configTrojanPasswordPrefixInput}202025",
-        "${configTrojanPasswordPrefixInput}202026",
-        "${configTrojanPasswordPrefixInput}202027",
-        "${configTrojanPasswordPrefixInput}202028",
-        "${configTrojanPasswordPrefixInput}202029",
-        "${configTrojanPasswordPrefixInput}202030",
-        "${configTrojanPasswordPrefixInput}202031",
-        "${configTrojanPasswordPrefixInput}202032",
-        "${configTrojanPasswordPrefixInput}202033",
-        "${configTrojanPasswordPrefixInput}202034",
-        "${configTrojanPasswordPrefixInput}202035",
-        "${configTrojanPasswordPrefixInput}202036",
-        "${configTrojanPasswordPrefixInput}202037",
-        "${configTrojanPasswordPrefixInput}202038",
-        "${configTrojanPasswordPrefixInput}202039",
-        "${configTrojanPasswordPrefixInput}202040",
-        "${configTrojanPasswordPrefixInput}202041",
-        "${configTrojanPasswordPrefixInput}202042",
-        "${configTrojanPasswordPrefixInput}202043",
-        "${configTrojanPasswordPrefixInput}202044",
-        "${configTrojanPasswordPrefixInput}202045",
-        "${configTrojanPasswordPrefixInput}202046",
-        "${configTrojanPasswordPrefixInput}202047",
-        "${configTrojanPasswordPrefixInput}202048",
-        "${configTrojanPasswordPrefixInput}202049",
-        "${configTrojanPasswordPrefixInput}202050",
-        "${configTrojanPasswordPrefixInput}202051",
-        "${configTrojanPasswordPrefixInput}202052",
-        "${configTrojanPasswordPrefixInput}202053",
-        "${configTrojanPasswordPrefixInput}202054",
-        "${configTrojanPasswordPrefixInput}202055",
-        "${configTrojanPasswordPrefixInput}202056",
-        "${configTrojanPasswordPrefixInput}202057",
-        "${configTrojanPasswordPrefixInput}202058",
-        "${configTrojanPasswordPrefixInput}202059",
-        "${configTrojanPasswordPrefixInput}202060",
-        "${configTrojanPasswordPrefixInput}202061",
-        "${configTrojanPasswordPrefixInput}202062",
-        "${configTrojanPasswordPrefixInput}202063",
-        "${configTrojanPasswordPrefixInput}202064",
-        "${configTrojanPasswordPrefixInput}202065",
-        "${configTrojanPasswordPrefixInput}202066",
-        "${configTrojanPasswordPrefixInput}202067",
-        "${configTrojanPasswordPrefixInput}202068",
-        "${configTrojanPasswordPrefixInput}202069",
-        "${configTrojanPasswordPrefixInput}202070",
-        "${configTrojanPasswordPrefixInput}202071",
-        "${configTrojanPasswordPrefixInput}202072",
-        "${configTrojanPasswordPrefixInput}202073",
-        "${configTrojanPasswordPrefixInput}202074",
-        "${configTrojanPasswordPrefixInput}202075",
-        "${configTrojanPasswordPrefixInput}202076",
-        "${configTrojanPasswordPrefixInput}202077",
-        "${configTrojanPasswordPrefixInput}202078",
-        "${configTrojanPasswordPrefixInput}202079",
-        "${configTrojanPasswordPrefixInput}202080",
-        "${configTrojanPasswordPrefixInput}202081",
-        "${configTrojanPasswordPrefixInput}202082",
-        "${configTrojanPasswordPrefixInput}202083",
-        "${configTrojanPasswordPrefixInput}202084",
-        "${configTrojanPasswordPrefixInput}202085",
-        "${configTrojanPasswordPrefixInput}202086",
-        "${configTrojanPasswordPrefixInput}202087",
-        "${configTrojanPasswordPrefixInput}202088",
-        "${configTrojanPasswordPrefixInput}202089",
-        "${configTrojanPasswordPrefixInput}202090",
-        "${configTrojanPasswordPrefixInput}202091",
-        "${configTrojanPasswordPrefixInput}202092",
-        "${configTrojanPasswordPrefixInput}202093",
-        "${configTrojanPasswordPrefixInput}202094",
-        "${configTrojanPasswordPrefixInput}202095",
-        "${configTrojanPasswordPrefixInput}202096",
-        "${configTrojanPasswordPrefixInput}202097",
-        "${configTrojanPasswordPrefixInput}202098",
-        "${configTrojanPasswordPrefixInput}202099"
+        "${configTrojanPasswordPrefixInput}202200",
+        "${configTrojanPasswordPrefixInput}202201",
+        "${configTrojanPasswordPrefixInput}202202",
+        "${configTrojanPasswordPrefixInput}202203",
+        "${configTrojanPasswordPrefixInput}202204",
+        "${configTrojanPasswordPrefixInput}202205",
+        "${configTrojanPasswordPrefixInput}202206",
+        "${configTrojanPasswordPrefixInput}202207",
+        "${configTrojanPasswordPrefixInput}202208",
+        "${configTrojanPasswordPrefixInput}202209",
+        "${configTrojanPasswordPrefixInput}202210",
+        "${configTrojanPasswordPrefixInput}202211",
+        "${configTrojanPasswordPrefixInput}202212",
+        "${configTrojanPasswordPrefixInput}202213",
+        "${configTrojanPasswordPrefixInput}202214",
+        "${configTrojanPasswordPrefixInput}202215",
+        "${configTrojanPasswordPrefixInput}202216",
+        "${configTrojanPasswordPrefixInput}202217",
+        "${configTrojanPasswordPrefixInput}202218",
+        "${configTrojanPasswordPrefixInput}202219",
+        "${configTrojanPasswordPrefixInput}202220",
+        "${configTrojanPasswordPrefixInput}202221",
+        "${configTrojanPasswordPrefixInput}202222",
+        "${configTrojanPasswordPrefixInput}202223",
+        "${configTrojanPasswordPrefixInput}202224",
+        "${configTrojanPasswordPrefixInput}202225",
+        "${configTrojanPasswordPrefixInput}202226",
+        "${configTrojanPasswordPrefixInput}202227",
+        "${configTrojanPasswordPrefixInput}202228",
+        "${configTrojanPasswordPrefixInput}202229",
+        "${configTrojanPasswordPrefixInput}202230",
+        "${configTrojanPasswordPrefixInput}202231",
+        "${configTrojanPasswordPrefixInput}202232",
+        "${configTrojanPasswordPrefixInput}202233",
+        "${configTrojanPasswordPrefixInput}202234",
+        "${configTrojanPasswordPrefixInput}202235",
+        "${configTrojanPasswordPrefixInput}202236",
+        "${configTrojanPasswordPrefixInput}202237",
+        "${configTrojanPasswordPrefixInput}202238",
+        "${configTrojanPasswordPrefixInput}202239",
+        "${configTrojanPasswordPrefixInput}202240",
+        "${configTrojanPasswordPrefixInput}202241",
+        "${configTrojanPasswordPrefixInput}202242",
+        "${configTrojanPasswordPrefixInput}202243",
+        "${configTrojanPasswordPrefixInput}202244",
+        "${configTrojanPasswordPrefixInput}202245",
+        "${configTrojanPasswordPrefixInput}202246",
+        "${configTrojanPasswordPrefixInput}202247",
+        "${configTrojanPasswordPrefixInput}202248",
+        "${configTrojanPasswordPrefixInput}202249",
+        "${configTrojanPasswordPrefixInput}202250",
+        "${configTrojanPasswordPrefixInput}202251",
+        "${configTrojanPasswordPrefixInput}202252",
+        "${configTrojanPasswordPrefixInput}202253",
+        "${configTrojanPasswordPrefixInput}202254",
+        "${configTrojanPasswordPrefixInput}202255",
+        "${configTrojanPasswordPrefixInput}202256",
+        "${configTrojanPasswordPrefixInput}202257",
+        "${configTrojanPasswordPrefixInput}202258",
+        "${configTrojanPasswordPrefixInput}202259",
+        "${configTrojanPasswordPrefixInput}202260",
+        "${configTrojanPasswordPrefixInput}202261",
+        "${configTrojanPasswordPrefixInput}202262",
+        "${configTrojanPasswordPrefixInput}202263",
+        "${configTrojanPasswordPrefixInput}202264",
+        "${configTrojanPasswordPrefixInput}202265",
+        "${configTrojanPasswordPrefixInput}202266",
+        "${configTrojanPasswordPrefixInput}202267",
+        "${configTrojanPasswordPrefixInput}202268",
+        "${configTrojanPasswordPrefixInput}202269",
+        "${configTrojanPasswordPrefixInput}202270",
+        "${configTrojanPasswordPrefixInput}202271",
+        "${configTrojanPasswordPrefixInput}202272",
+        "${configTrojanPasswordPrefixInput}202273",
+        "${configTrojanPasswordPrefixInput}202274",
+        "${configTrojanPasswordPrefixInput}202275",
+        "${configTrojanPasswordPrefixInput}202276",
+        "${configTrojanPasswordPrefixInput}202277",
+        "${configTrojanPasswordPrefixInput}202278",
+        "${configTrojanPasswordPrefixInput}202279",
+        "${configTrojanPasswordPrefixInput}202280",
+        "${configTrojanPasswordPrefixInput}202281",
+        "${configTrojanPasswordPrefixInput}202282",
+        "${configTrojanPasswordPrefixInput}202283",
+        "${configTrojanPasswordPrefixInput}202284",
+        "${configTrojanPasswordPrefixInput}202285",
+        "${configTrojanPasswordPrefixInput}202286",
+        "${configTrojanPasswordPrefixInput}202287",
+        "${configTrojanPasswordPrefixInput}202288",
+        "${configTrojanPasswordPrefixInput}202289",
+        "${configTrojanPasswordPrefixInput}202290",
+        "${configTrojanPasswordPrefixInput}202291",
+        "${configTrojanPasswordPrefixInput}202292",
+        "${configTrojanPasswordPrefixInput}202293",
+        "${configTrojanPasswordPrefixInput}202294",
+        "${configTrojanPasswordPrefixInput}202295",
+        "${configTrojanPasswordPrefixInput}202296",
+        "${configTrojanPasswordPrefixInput}202297",
+        "${configTrojanPasswordPrefixInput}202298",
+        "${configTrojanPasswordPrefixInput}202299"
 EOM
 
     fi
@@ -2674,9 +2950,7 @@ EOM
 
 
 
-
-
-    if [ "$isTrojanGo" = "no" ] ; then
+    if [[ "${isTrojanTypeInput}" == "1" ]]; then
 
         # 增加trojan 服务器端配置
 	    cat > ${configTrojanBasePath}/server.json <<-EOF
@@ -2732,8 +3006,8 @@ After=network.target
 
 [Service]
 Type=simple
-PIDFile=${configTrojanPath}/trojan.pid
-ExecStart=${configTrojanPath}/trojan -l ${configTrojanLogFile} -c "${configTrojanPath}/server.json"
+PIDFile=${configTrojanBasePath}/trojan.pid
+ExecStart=${configTrojanBasePath}/trojan -l ${configTrojanLogFile} -c "${configTrojanBasePath}/server.json"
 ExecReload=/bin/kill -HUP \$MAINPID
 Restart=on-failure
 RestartSec=10
@@ -2743,13 +3017,12 @@ PrivateTmp=true
 [Install]
 WantedBy=multi-user.target
 EOF
-    fi
 
 
-    if [ "$isTrojanGo" = "yes" ] ; then
+    else
 
-        # 增加trojan 服务器端配置
-	    cat > ${configTrojanBasePath}/server.json <<-EOF
+    # 增加trojan-go 服务器端配置
+    cat > ${configTrojanBasePath}/server.json <<-EOF
 {
     "run_type": "server",
     "local_addr": "0.0.0.0",
@@ -2760,7 +3033,7 @@ EOF
         ${trojanConfigUserpasswordInput}
     ],
     "log_level": 1,
-    "log_file": "${configTrojanGoLogFile}",
+    "log_file": "${configTrojanLogFile}",
     "ssl": {
         "verify": true,
         "verify_hostname": true,
@@ -2779,16 +3052,17 @@ EOF
 }
 EOF
 
-        # 增加启动脚本
-        cat > ${osSystemMdPath}trojan-go.service <<-EOF
+
+    # 增加启动脚本
+    cat > ${osSystemMdPath}trojan-go.service <<-EOF
 [Unit]
 Description=trojan-go
 After=network.target
 
 [Service]
 Type=simple
-PIDFile=${configTrojanGoPath}/trojan-go.pid
-ExecStart=${configTrojanGoPath}/trojan-go -config "${configTrojanGoPath}/server.json"
+PIDFile=${configTrojanBasePath}/trojan-go.pid
+ExecStart=${configTrojanBasePath}/trojan-go -config "${configTrojanBasePath}/server.json"
 ExecReload=/bin/kill -HUP \$MAINPID
 Restart=on-failure
 RestartSec=10
@@ -2797,75 +3071,15 @@ RestartPreventExitStatus=23
 [Install]
 WantedBy=multi-user.target
 EOF
+
     fi
 
+    ${sudoCmd} chown -R root:root ${configTrojanBasePath}
+    ${sudoCmd} chmod -R 774 ${configTrojanBasePath}
     ${sudoCmd} chmod +x ${osSystemMdPath}trojan${promptInfoTrojanName}.service
     ${sudoCmd} systemctl daemon-reload
     ${sudoCmd} systemctl start trojan${promptInfoTrojanName}.service
     ${sudoCmd} systemctl enable trojan${promptInfoTrojanName}.service
-
-
-    if [ "${configV2rayWorkingMode}" == "nouse" ] ; then
-        
-    
-    # 下载并制作 trojan windows 客户端的命令行启动文件
-    rm -rf ${configTrojanBasePath}/trojan-win-cli
-    rm -rf ${configTrojanBasePath}/trojan-win-cli-temp
-    mkdir -p ${configTrojanBasePath}/trojan-win-cli-temp
-
-    downloadAndUnzip "https://github.com/jinwyp/one_click_script/raw/master/download/trojan-win-cli.zip" "${configTrojanBasePath}" "trojan-win-cli.zip"
-
-    if [ "$isTrojanGo" = "no" ] ; then
-        downloadAndUnzip "https://github.com/trojan-gfw/trojan/releases/download/v${versionTrojan}/trojan-${versionTrojan}-win.zip" "${configTrojanBasePath}/trojan-win-cli-temp" "trojan-${versionTrojan}-win.zip"
-        mv -f ${configTrojanBasePath}/trojan-win-cli-temp/trojan/trojan.exe ${configTrojanBasePath}/trojan-win-cli/
-        mv -f ${configTrojanBasePath}/trojan-win-cli-temp/trojan/VC_redist.x64.exe ${configTrojanBasePath}/trojan-win-cli/
-    fi
-
-    if [ "$isTrojanGo" = "yes" ] ; then
-        downloadAndUnzip "https://github.com/p4gefau1t/trojan-go/releases/download/v${versionTrojanGo}/trojan-go-windows-amd64.zip" "${configTrojanBasePath}/trojan-win-cli-temp" "trojan-go-windows-amd64.zip"
-        mv -f ${configTrojanBasePath}/trojan-win-cli-temp/* ${configTrojanBasePath}/trojan-win-cli/
-    fi
-
-    rm -rf ${configTrojanBasePath}/trojan-win-cli-temp
-    cp ${configSSLCertPath}/${configSSLCertFullchainFilename} ${configTrojanBasePath}/trojan-win-cli/${configSSLCertFullchainFilename}
-
-    cat > ${configTrojanBasePath}/trojan-win-cli/config.json <<-EOF
-{
-    "run_type": "client",
-    "local_addr": "127.0.0.1",
-    "local_port": 1080,
-    "remote_addr": "${configSSLDomain}",
-    "remote_port": 443,
-    "password": [
-        "${trojanPassword1}"
-    ],
-    "log_level": 1,
-    "ssl": {
-        "verify": true,
-        "verify_hostname": true,
-        "cert": "$configSSLCertFullchainFilename",
-        "cipher_tls13":"TLS_AES_128_GCM_SHA256:TLS_CHACHA20_POLY1305_SHA256:TLS_AES_256_GCM_SHA384",
-	    "sni": "",
-        "alpn": [
-            "h2",
-            "http/1.1"
-        ],
-        "reuse_session": true,
-        "session_ticket": false,
-        "curves": ""
-    },
-    "tcp": {
-        "no_delay": true,
-        "keep_alive": true,
-        "fast_open": false,
-        "fast_open_qlen": 20
-    }
-}
-EOF
-
-    zip -r ${configWebsiteDownloadPath}/trojan-win-cli.zip ${configTrojanBasePath}/trojan-win-cli/
-
-    fi
 
 
 
@@ -2892,10 +3106,10 @@ EOF
 	green "    Trojan${promptInfoTrojanName} 查看运行状态命令:  systemctl status trojan${promptInfoTrojanName}.service "
 	green "    Trojan${promptInfoTrojanName} 服务器 每天会自动重启, 防止内存泄漏. 运行 crontab -l 命令 查看定时重启命令 !"
 	green "======================================================================"
-	# blue  "----------------------------------------"
+
     echo
 	yellow "Trojan${promptInfoTrojanName} 配置信息如下, 请自行复制保存, 密码任选其一 !"
-	yellow "服务器地址: ${configSSLDomain}  端口: $configV2rayTrojanPort"
+	yellow "服务器地址: ${configSSLDomain}  端口: ${configV2rayTrojanReadmePort}"
 	yellow "密码1: ${trojanPassword1}"
 	yellow "密码2: ${trojanPassword2}"
 	yellow "密码3: ${trojanPassword3}"
@@ -2907,12 +3121,12 @@ EOF
 	yellow "密码9: ${trojanPassword9}"
 	yellow "密码10: ${trojanPassword10}"
 
-    tempTextInfoTrojanPassword="您指定前缀的密码共100个: 从 ${configTrojanPasswordPrefixInput}202000 到 ${configTrojanPasswordPrefixInput}202099 都可以使用"
+    tempTextInfoTrojanPassword="您指定前缀的密码共100个: 从 ${configTrojanPasswordPrefixInput}202200 到 ${configTrojanPasswordPrefixInput}202299 都可以使用"
     if [ "${isTrojanMultiPassword}" = "no" ] ; then
-        tempTextInfoTrojanPassword="您指定前缀的密码共20个: 从 ${configTrojanPasswordPrefixInput}202001 到 ${configTrojanPasswordPrefixInput}202020 都可以使用"
+        tempTextInfoTrojanPassword="您指定前缀的密码共10个: 从 ${configTrojanPasswordPrefixInput}202201 到 ${configTrojanPasswordPrefixInput}202220 都可以使用"
     fi
 	yellow "${tempTextInfoTrojanPassword}" 
-	yellow "例如: 密码:${configTrojanPasswordPrefixInput}202002 或 密码:${configTrojanPasswordPrefixInput}202019 都可以使用"
+	yellow "例如: 密码:${configTrojanPasswordPrefixInput}202202 或 密码:${configTrojanPasswordPrefixInput}202209 都可以使用"
 
     if [[ ${isTrojanGoSupportWebsocket} == "true" ]]; then
         yellow "Websocket path 路径为: /${configTrojanGoWebSocketPath}"
@@ -2924,33 +3138,33 @@ EOF
     green "======================================================================"
     yellow " Trojan${promptInfoTrojanName} 小火箭 Shadowrocket 链接地址"
 
-    if [ "$isTrojanGo" = "yes" ] ; then
+    if [ "$isTrojanTypeInput" != "1" ] ; then
         if [[ ${isTrojanGoSupportWebsocket} == "true" ]]; then
-            green " trojan://${trojanPassword1}@${configSSLDomain}:${configV2rayTrojanPort}?peer=${configSSLDomain}&sni=${configSSLDomain}&plugin=obfs-local;obfs=websocket;obfs-host=${configSSLDomain};obfs-uri=/${configTrojanGoWebSocketPath}#${configSSLDomain}_trojan_go_ws"
+            green " trojan://${trojanPassword1}@${configSSLDomain}:${configV2rayTrojanReadmePort}?peer=${configSSLDomain}&sni=${configSSLDomain}&plugin=obfs-local;obfs=websocket;obfs-host=${configSSLDomain};obfs-uri=/${configTrojanGoWebSocketPath}#${configSSLDomain}_trojan_go_ws"
             echo
             yellow " 二维码 Trojan${promptInfoTrojanName} "
-		    green "https://api.qrserver.com/v1/create-qr-code/?size=400x400&data=trojan%3a%2f%2f${trojanPassword1}%40${configSSLDomain}%3a${configV2rayTrojanPort}%3fallowInsecure%3d0%26peer%3d${configSSLDomain}%26plugin%3dobfs-local%3bobfs%3dwebsocket%3bobfs-host%3d${configSSLDomain}%3bobfs-uri%3d/${configTrojanGoWebSocketPath}%23${configSSLDomain}_trojan_go_ws"
+		    green "https://api.qrserver.com/v1/create-qr-code/?size=400x400&data=trojan%3a%2f%2f${trojanPassword1}%40${configSSLDomain}%3a${configV2rayTrojanReadmePort}%3fallowInsecure%3d0%26peer%3d${configSSLDomain}%26plugin%3dobfs-local%3bobfs%3dwebsocket%3bobfs-host%3d${configSSLDomain}%3bobfs-uri%3d/${configTrojanGoWebSocketPath}%23${configSSLDomain}_trojan_go_ws"
 
             echo
             yellow " Trojan${promptInfoTrojanName} QV2ray 链接地址"
-            green " trojan-go://${trojanPassword1}@${configSSLDomain}:${configV2rayTrojanPort}?sni=${configSSLDomain}&type=ws&host=${configSSLDomain}&path=%2F${configTrojanGoWebSocketPath}#${configSSLDomain}_trojan_go_ws"
+            green " trojan-go://${trojanPassword1}@${configSSLDomain}:${configV2rayTrojanReadmePort}?sni=${configSSLDomain}&type=ws&host=${configSSLDomain}&path=%2F${configTrojanGoWebSocketPath}#${configSSLDomain}_trojan_go_ws"
         
         else
-            green " trojan://${trojanPassword1}@${configSSLDomain}:${configV2rayTrojanPort}?peer=${configSSLDomain}&sni=${configSSLDomain}#${configSSLDomain}_trojan_go"
+            green " trojan://${trojanPassword1}@${configSSLDomain}:${configV2rayTrojanReadmePort}?peer=${configSSLDomain}&sni=${configSSLDomain}#${configSSLDomain}_trojan_go"
             echo
             yellow " 二维码 Trojan${promptInfoTrojanName} "
-            green "https://api.qrserver.com/v1/create-qr-code/?size=400x400&data=trojan%3a%2f%2f${trojanPassword1}%40${configSSLDomain}%3a${configV2rayTrojanPort}%3fpeer%3d${configSSLDomain}%26sni%3d${configSSLDomain}%23${configSSLDomain}_trojan_go"
+            green "https://api.qrserver.com/v1/create-qr-code/?size=400x400&data=trojan%3a%2f%2f${trojanPassword1}%40${configSSLDomain}%3a${configV2rayTrojanReadmePort}%3fpeer%3d${configSSLDomain}%26sni%3d${configSSLDomain}%23${configSSLDomain}_trojan_go"
 
             echo
             yellow " Trojan${promptInfoTrojanName} QV2ray 链接地址"
-            green " trojan-go://${trojanPassword1}@${configSSLDomain}:${configV2rayTrojanPort}?sni=${configSSLDomain}&type=original&host=${configSSLDomain}#${configSSLDomain}_trojan_go"
+            green " trojan-go://${trojanPassword1}@${configSSLDomain}:${configV2rayTrojanReadmePort}?sni=${configSSLDomain}&type=original&host=${configSSLDomain}#${configSSLDomain}_trojan_go"
         fi
 
     else
-        green " trojan://${trojanPassword1}@${configSSLDomain}:${configV2rayTrojanPort}?peer=${configSSLDomain}&sni=${configSSLDomain}#${configSSLDomain}_trojan"
+        green " trojan://${trojanPassword1}@${configSSLDomain}:${configV2rayTrojanReadmePort}?peer=${configSSLDomain}&sni=${configSSLDomain}#${configSSLDomain}_trojan"
         echo
         yellow " 二维码 Trojan${promptInfoTrojanName} "
-		green "https://api.qrserver.com/v1/create-qr-code/?size=400x400&data=trojan%3a%2f%2f${trojanPassword1}%40${configSSLDomain}%3a${configV2rayTrojanPort}%3fpeer%3d${configSSLDomain}%26sni%3d${configSSLDomain}%23${configSSLDomain}_trojan"
+		green "https://api.qrserver.com/v1/create-qr-code/?size=400x400&data=trojan%3a%2f%2f${trojanPassword1}%40${configSSLDomain}%3a${configV2rayTrojanReadmePort}%3fpeer%3d${configSSLDomain}%26sni%3d${configSSLDomain}%23${configSSLDomain}_trojan"
 
     fi
 
@@ -2973,7 +3187,6 @@ EOF
     green "======================================================================"
 	green "教程与其他资源:"
 	green "访问 https://www.v2rayssr.com/vpn-client.html 下载 客户端 及教程"
-	#green "访问 https://www.v2rayssr.com/trojan-1.html 下载 浏览器插件 客户端 及教程"
     green "访问 https://westworldss.com/portal/page/download 下载 客户端 及教程"
 	green "======================================================================"
 	green "其他 Windows 客户端:"
@@ -2986,13 +3199,9 @@ EOF
 	green "https://dl.trojan-cdn.com/trojan (exe为Win客户端, dmg为Mac客户端)"
 	green "https://github.com/Qv2ray/Qv2ray/releases (exe为Win客户端, dmg为Mac客户端)"
 	green "https://github.com/Dr-Incognito/V2Ray-Desktop/releases (exe为Win客户端, dmg为Mac客户端)"
-	green "https://github.com/JimLee1996/TrojanX/releases (exe为Win客户端, dmg为Mac客户端)"
 	green "https://github.com/yichengchen/clashX/releases "
 	green "======================================================================"
-	green "其他 Android 客户端:"
-	green "https://github.com/trojan-gfw/igniter/releases "
-	green "https://github.com/Kr328/ClashForAndroid/releases "
-	green "======================================================================"
+
 
 
     cat >> ${configReadme} <<-EOF
@@ -3008,7 +3217,7 @@ Trojan${promptInfoTrojanName} 停止命令: systemctl stop trojan${promptInfoTro
 Trojan${promptInfoTrojanName} 重启命令: systemctl restart trojan${promptInfoTrojanName}.service
 Trojan${promptInfoTrojanName} 查看运行状态命令: systemctl status trojan${promptInfoTrojanName}.service
 
-Trojan${promptInfoTrojanName}服务器地址: ${configSSLDomain}  端口: $configV2rayTrojanPort
+Trojan${promptInfoTrojanName}服务器地址: ${configSSLDomain}  端口: ${configV2rayTrojanReadmePort}
 
 密码1: ${trojanPassword1}
 密码2: ${trojanPassword2}
@@ -3021,86 +3230,67 @@ Trojan${promptInfoTrojanName}服务器地址: ${configSSLDomain}  端口: $confi
 密码9: ${trojanPassword9}
 密码10: ${trojanPassword10}
 ${tempTextInfoTrojanPassword}
-例如: 密码:${configTrojanPasswordPrefixInput}202002 或 密码:${configTrojanPasswordPrefixInput}202019 都可以使用
+例如: 密码:${configTrojanPasswordPrefixInput}202202 或 密码:${configTrojanPasswordPrefixInput}202209 都可以使用
 
 如果是trojan-go开启了Websocket，那么Websocket path 路径为: /${configTrojanGoWebSocketPath}
 
 小火箭链接:
-trojan://${trojanPassword1}@${configSSLDomain}:${configV2rayTrojanPort}?peer=${configSSLDomain}&sni=${configSSLDomain}#${configSSLDomain}_trojan"
+trojan://${trojanPassword1}@${configSSLDomain}:${configV2rayTrojanReadmePort}?peer=${configSSLDomain}&sni=${configSSLDomain}#${configSSLDomain}_trojan"
 
 二维码 Trojan${promptInfoTrojanName}
-https://api.qrserver.com/v1/create-qr-code/?size=400x400&data=trojan%3a%2f%2f${trojanPassword1}%40${configSSLDomain}%3a${configV2rayTrojanPort}%3fpeer%3d${configSSLDomain}%26sni%3d${configSSLDomain}%23${configSSLDomain}_trojan
+https://api.qrserver.com/v1/create-qr-code/?size=400x400&data=trojan%3a%2f%2f${trojanPassword1}%40${configSSLDomain}%3a${configV2rayTrojanReadmePort}%3fpeer%3d${configSSLDomain}%26sni%3d${configSSLDomain}%23${configSSLDomain}_trojan
 
 EOF
 }
 
-function upgradeTrojan(){
-
-    checkTrojanGoInstall
-
-    if [[ -f "${configTrojanPath}/trojan" || -f "${configTrojanGoPath}/trojan-go" ]]; then
-
-        getTrojanGoInstallInfo
-
-        green " ================================================== "
-        green "     开始升级 Trojan${promptInfoTrojanName} Version: ${configTrojanBaseVersion}"
-        green " ================================================== "
-
-        ${sudoCmd} systemctl stop trojan${promptInfoTrojanName}.service
-        mkdir -p ${configDownloadTempPath}/upgrade/trojan${promptInfoTrojanName}
-        downloadTrojanBin "upgrade"
-        ${sudoCmd} systemctl start trojan${promptInfoTrojanName}.service
-
-        green " ================================================== "
-        green "     升级成功 Trojan${promptInfoTrojanName} Version: ${configTrojanBaseVersion} !"
-        green " ================================================== "
-
-    else
-        red " 系统没有安装 trojan${promptInfoTrojanName}, 退出卸载"
-    fi
-}
-
 function removeTrojan(){
 
+    if [[ -f "${configTrojanGoPath}/trojan-go" ]]; then
+
+        promptInfoTrojanName="-go"
+        configTrojanBasePath="${configTrojanGoPath}"
+
+    elif [[ -f "${configTrojanPath}/trojan" ]]; then
+
+        promptInfoTrojanName=""
+        configTrojanBasePath="${configTrojanPath}"
+
+    else
+        red " 系统没有安装 Trojan / Trojan-go, 退出卸载"
+        red " Trojan or Trojan-go not install, exit"
+        exit
+    fi
+
     echo
-    read -p "是否确认卸载 trojan 或 trojan-go? 直接回车默认卸载, 请输入[Y/n]:" isRemoveTrojanServerInput
+    green " ================================================== "
+    green " Are you sure to uninstall Trojan${promptInfoTrojanName} ? "
+    read -r -p "是否确认卸载 Trojan${promptInfoTrojanName}? 直接回车默认卸载, 请输入[Y/n]:" isRemoveTrojanServerInput
     isRemoveTrojanServerInput=${isRemoveTrojanServerInput:-Y}
 
     if [[ "${isRemoveTrojanServerInput}" == [Yy] ]]; then
         
+        echo
+        green " ================================================== "
+        red " 准备卸载已安装的 Trojan${promptInfoTrojanName}"
+        green " ================================================== "
+        echo
+
+        ${sudoCmd} systemctl stop trojan${promptInfoTrojanName}.service
+        ${sudoCmd} systemctl disable trojan${promptInfoTrojanName}.service
+
+        rm -rf ${configTrojanBasePath}
+        rm -f ${osSystemMdPath}trojan${promptInfoTrojanName}.service
+        rm -f ${configTrojanLogFile}
+
+        rm -f ${configReadme}
+
+        crontab -l | grep -v "trojan${promptInfoTrojanName}"  | crontab -
 
         echo
-        checkTrojanGoInstall
-
-        if [[ -f "${configTrojanPath}/trojan" || -f "${configTrojanGoPath}/trojan-go" ]]; then
-            echo
-            green " ================================================== "
-            red " 准备卸载已安装的trojan${promptInfoTrojanName}"
-            green " ================================================== "
-            echo
-
-            ${sudoCmd} systemctl stop trojan${promptInfoTrojanName}.service
-            ${sudoCmd} systemctl disable trojan${promptInfoTrojanName}.service
-
-            rm -rf ${configTrojanBasePath}
-            rm -f ${osSystemMdPath}trojan${promptInfoTrojanName}.service
-            rm -f ${configTrojanLogFile}
-            rm -f ${configTrojanGoLogFile}
-
-            rm -f ${configReadme}
-
-            crontab -l | grep -v "trojan${promptInfoTrojanName}"  | crontab -
-
-            echo
-            green " ================================================== "
-            green "  trojan${promptInfoTrojanName} 卸载完毕 !"
-            green "  crontab 定时任务 删除完毕 !"
-            green " ================================================== "
-            
-        else
-            red " 系统没有安装 trojan${promptInfoTrojanName}, 退出卸载"
-        fi
-
+        green " ================================================== "
+        green "  Trojan${promptInfoTrojanName} 卸载完毕 ! Trojan${promptInfoTrojanName} uninstall success !"
+        green "  crontab 定时任务 删除完毕 ! crontab remove success !"
+        green " ================================================== "
     fi
 }
 
@@ -3108,6 +3298,581 @@ function removeTrojan(){
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+get_ip(){
+    local IP
+    IP=$( ip addr | egrep -o '[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}' | egrep -v '^192\.168|^172\.1[6-9]\.|^172\.2[0-9]\.|^172\.3[0-2]\.|^10\.|^127\.|^255\.|^0\.' | head -n 1 )
+    [ -z "${IP}" ] && IP=$( wget -qO- -t1 -T2 ipv4.icanhazip.com )
+    [ -z "${IP}" ] && IP=$( wget -qO- -t1 -T2 ipinfo.io/ip )
+    echo "${IP}"
+}
+
+get_ipv6(){
+    local ipv6
+    ipv6=$(wget -qO- -t1 -T2 ipv6.icanhazip.com)
+    [ -z "${ipv6}" ] && return 1 || return 0
+}
+
+genShadowsocksPassword(){
+    if [ -z "$1" ]; then
+
+        shadowsocksPassword1=$(openssl rand -base64 32 | head -c 12)
+        shadowsocksPassword2=$(openssl rand -base64 32 | head -c 12)
+        shadowsocksPassword3=$(openssl rand -base64 32 | head -c 12)
+        shadowsocksPassword4=$(openssl rand -base64 32 | head -c 12)
+        shadowsocksPassword5=$(openssl rand -base64 32 | head -c 12)
+    else
+        PSlength=$1
+
+        shadowsocksPassword0=$(openssl rand -base64 "${PSlength}")
+        shadowsocksPassword1=$(openssl rand -base64 "${PSlength}")
+        shadowsocksPassword2=$(openssl rand -base64 "${PSlength}")
+        shadowsocksPassword3=$(openssl rand -base64 "${PSlength}")
+        shadowsocksPassword4=$(openssl rand -base64 "${PSlength}")
+        shadowsocksPassword5=$(openssl rand -base64 "${PSlength}")
+    fi
+}
+
+selectShadowsocksMethod(){
+
+    # 建议使用 AEAD (method 为 aes-256-gcm、aes-128-gcm、chacha20-poly1305 即可开启 AEAD)
+    # 也可以使用传统的 method (method 为 aes-256-cfb、aes-128-cfb、chacha20、salsa20 等)
+    echo
+    green " =================================================="
+    yellow " 请选择 Shadowsocks 加密方式 (默认7 2022-blake3-aes-256-gcm):"
+    yellow " Pls select Shadowsocks encryption method (default is 7 2022-blake3-aes-256-gcm):"
+    echo
+    green " 1. aes-256-gcm"
+    green " 2. aes-128-gcm"
+    green " 3. chacha20-poly1305"
+    green " 4. chacha20-ietf-poly1305"
+    green " 5. xchacha20-ietf-poly1305"
+    green " 6. 2022-blake3-aes-128-gcm"
+    green " 7. 2022-blake3-aes-256-gcm"
+    green " 8. 2022-blake3-chacha20-poly1305"
+    echo
+    read -r -p "请选择加密方式? 直接回车默认选7, 请输入纯数字:" isShadowsocksMethodInput
+    isShadowsocksMethodInput=${isShadowsocksMethodInput:-7}
+    
+    genShadowsocksPassword
+
+    if [[ "${isShadowsocksMethodInput}" == "1" ]]; then
+        shadowsocksMethod="aes-256-gcm"
+    elif [[ "${isShadowsocksMethodInput}" == "2" ]]; then
+        shadowsocksMethod="aes-128-gcm"
+    elif [[ "${isShadowsocksMethodInput}" == "3" ]]; then
+        shadowsocksMethod="chacha20-poly1305"
+    elif [[ "${isShadowsocksMethodInput}" == "4" ]]; then
+        shadowsocksMethod="chacha20-ietf-poly1305"
+    elif [[ "${isShadowsocksMethodInput}" == "5" ]]; then
+        shadowsocksMethod="xchacha20-ietf-poly1305"
+
+    elif [[ "${isShadowsocksMethodInput}" == "6" ]]; then
+        shadowsocksMethod="2022-blake3-aes-128-gcm"
+        genShadowsocksPassword "16"
+
+    elif [[ "${isShadowsocksMethodInput}" == "7" ]]; then
+        shadowsocksMethod="2022-blake3-aes-256-gcm"
+        genShadowsocksPassword "32"
+
+    elif [[ "${isShadowsocksMethodInput}" == "8" ]]; then
+        shadowsocksMethod="2022-blake3-chacha20-poly1305"
+        genShadowsocksPassword "32"       
+    else
+        shadowsocksMethod="aes-256-gcm"
+    fi
+
+    echo
+}
+
+
+configSSRustPath="/root/shadowsocksrust"
+
+configSSXrayPath="/root/shadowsocksxray"
+configSSXrayPort="$(($RANDOM + 10000))"
+configSSAccessLogFilePath="${HOME}/ss-access.log"
+configSSErrorLogFilePath="${HOME}/ss-error.log"
+
+
+
+function installShadowsocksRust(){
+    if [ -f "${configSSRustPath}/xray"  ]; then
+        showHeaderGreen " 已安装过 Shadowsocks Rust, 退出安装 !" \
+        " Shadowsocks Rust already installed, exit !"
+        exit 0
+    fi
+
+    showHeaderGreen " 开始安装 Shadowsocks Rust " \
+    " Prepare to install Shadowsocks Rust "  
+
+    configNetworkVPSIP=$(get_ip)
+
+    echo
+    green " ================================================== "
+    green " Shadowsocks Rust Version, default is latest 1.15.0-alpha, choose no is 1.14.3 "
+    green " 请选择 Shadowsocks Rust 的版本, 默认直接回车为最新版 1.15.0-alpha 选否为 1.14.3"
+    echo
+    read -r -p "是否安装最新版? 默认直接回车为最新版, 请输入[Y/n]:" isInstallSSRustVersionInput
+    isInstallSSRustVersionInput=${isInstallSSRustVersionInput:-Y}
+    echo
+
+    if [[ $isInstallSSRustVersionInput == [Yy] ]]; then
+        versionShadowsocksRust="1.15.0-alpha.9"
+        #versionShadowsocksRust=$(getGithubLatestReleaseVersion "shadowsocks/shadowsocks-rust")
+    else
+        versionShadowsocksRust="1.14.3"
+    fi
+    echo "Version: ${versionShadowsocksRust}"
+
+
+
+    echo
+    green " 准备下载并安装 Shadowsocks Rust: ${versionXray} !"
+    green " Prepare to download and install Shadowsocks Rust Version: ${versionXray} !"
+    echo
+    mkdir -p "${configSSRustPath}"
+    cd "${configSSRustPath}" || exit
+    rm -rf ${configSSRustPath}/*
+
+    # https://github.com/shadowsocks/shadowsocks-rust/releases/download/v1.14.3/shadowsocks-v1.14.3.x86_64-unknown-linux-musl.tar.xz
+    # https://github.com/shadowsocks/shadowsocks-rust/releases/download/v1.14.3/shadowsocks-v1.14.3.arm-unknown-linux-musleabi.tar.xz
+    
+    downloadFilenameShadowsocksRust="shadowsocks-v${versionShadowsocksRust}.x86_64-unknown-linux-musl.tar.xz"
+    if [[ ${osArchitecture} == "arm" ]] ; then
+        downloadFilenameShadowsocksRust="shadowsocks-v${versionShadowsocksRust}.arm-unknown-linux-musleabi.tar.xz"
+    fi
+    if [[ ${osArchitecture} == "arm64" ]] ; then
+        downloadFilenameShadowsocksRust="shadowsocks-v${versionShadowsocksRust}.arm-unknown-linux-musleabi.tar.xz"
+    fi
+
+    downloadAndUnzip "https://github.com/shadowsocks/shadowsocks-rust/releases/download/v${versionShadowsocksRust}/${downloadFilenameShadowsocksRust}" "${configSSRustPath}" "${downloadFilenameShadowsocksRust}"
+
+    selectShadowsocksMethod
+
+    cat > ${configSSRustPath}/shadowsocks.json <<-EOF
+{
+    "server": "0.0.0.0",
+    "server_port": ${configSSXrayPort},
+    "password": "${shadowsocksPassword1}",
+    "timeout": 300,
+    "method": "${shadowsocksMethod}"
+}
+EOF
+
+    cat > ${osSystemMdPath}shadowsocksrust.service <<-EOF
+
+[Unit]
+Description=ssserver service
+After=network.target
+
+[Service]
+ExecStart=${configSSRustPath}/ssserver -c ${configSSRustPath}/shadowsocks.json
+ExecStop=/usr/bin/killall ssserver
+Restart=on-failure
+RestartSec=30
+User=root
+Group=root
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+    ${sudoCmd} chmod +x ${configSSRustPath}/ssserver
+    ${sudoCmd} chmod +x ${osSystemMdPath}shadowsocksrust.service
+    ${sudoCmd} systemctl daemon-reload
+    
+    ${sudoCmd} systemctl enable shadowsocksrust.service
+    ${sudoCmd} systemctl restart shadowsocksrust.service
+
+    (crontab -l ; echo "22 4 * * 0,1,2,3,4,5,6 systemctl restart shadowsocksrust.service") | sort - | uniq - | crontab -
+
+    configShadowsocksLink=$(echo -n "${shadowsocksMethod}:${shadowsocksPassword1}@${configNetworkVPSIP}:${configSSXrayPort}" | base64 -w0)
+    configShadowsocksLinkFull="ss://${configShadowsocksLink}"
+
+    cat > ${configSSRustPath}/clientConfig.json <<-EOF
+
+=========== 客户端 Shadowsocks 配置参数 密码任选其一 =============
+
+{
+    协议: Shadowsocks,
+    地址: IP ${configNetworkVPSIP},
+    端口: ${configSSXrayPort},
+    加密方式: ${shadowsocksMethod},
+    密码1: ${shadowsocksPassword1}
+    别名:自己起个任意名称
+}
+
+Shadowsocks 导入链接:
+ss://${shadowsocksMethod}:${configShadowsocksPasswordPrefix}${shadowsocksPassword1}@${configNetworkVPSIP}:${configSSXrayPort}
+
+或
+
+${configShadowsocksLinkFull}
+
+EOF
+
+
+
+    showHeaderGreen " Shadowsocks Rust 安装成功 !"
+
+	red " ShadowsocksRust 服务器端配置路径 ${configSSRustPath}/shadowsocks.json !"
+    green " ShadowsocksRust 查看日志命令: journalctl -n 50 -u shadowsocksrust.service "
+	green " ShadowsocksRust 停止命令: systemctl stop shadowsocksrust.service  启动命令: systemctl start shadowsocksrust.service "
+	green " ShadowsocksRust 重启命令: systemctl restart shadowsocksrust.service"
+	green " ShadowsocksRust 查看运行状态命令:  systemctl status shadowsocksrust.service "
+	green " ShadowsocksRust 服务器 每天会自动重启, 防止内存泄漏. 运行 crontab -l 命令 查看定时重启命令 !"
+
+    echo
+	cat "${configSSRustPath}/clientConfig.json"
+    echo
+
+
+}
+
+
+function installShadowsocks(){
+
+    if [ -f "${configSSXrayPath}/xray"  ]; then
+        showHeaderGreen " 已安装过 Shadowsocks Xray, 退出安装 !" \
+        " Shadowsocks Xray already installed, exit !"
+        exit 0
+    fi
+
+
+
+    showHeaderGreen " 开始安装 Xray Shadowsocks " \
+    " Prepare to install Xray Shadowsocks "  
+
+    configNetworkVPSIP=$(get_ip)
+
+    getV2rayVersion "xray"
+    green " 准备下载并安装 Xray Version: ${versionXray} !"
+    green " Prepare to download and install Xray Version: ${versionXray} !"
+
+    echo
+    mkdir -p "${configSSXrayPath}"
+    cd "${configSSXrayPath}" || exit
+    rm -rf ${configSSXrayPath}/*
+
+    downloadV2rayXrayBin "shadowsocks"
+
+    selectShadowsocksMethod
+
+    if [[ "${isShadowsocksMethodInput}" == "6" || "${isShadowsocksMethodInput}" == "7" || "${isShadowsocksMethodInput}" == "8" ]]; then
+        read -r -d '' shadowsocksXrayConfigInboundInput << EOM
+    "inbounds": [
+        {
+            "port": ${configSSXrayPort},
+            "protocol": "shadowsocks",
+            "settings": {
+                "method": "${shadowsocksMethod}",
+                "password": "${shadowsocksPassword0}",
+                "network": "tcp,udp",
+                "clients": [
+                    { "password": "${shadowsocksPassword1}", "email": "password101@gmail.com" },
+                    { "password": "${shadowsocksPassword2}", "email": "password102@gmail.com" },
+                    { "password": "${shadowsocksPassword3}", "email": "password103@gmail.com" },
+                    { "password": "${shadowsocksPassword4}", "email": "password104@gmail.com" },
+                    { "password": "${shadowsocksPassword5}", "email": "password105@gmail.com" }
+                ]
+            }
+        }
+    ],
+EOM
+
+
+else
+
+    read -r -d '' shadowsocksXrayConfigInboundInput << EOM
+    "inbounds": [
+        {
+            "port": ${configSSXrayPort},
+            "protocol": "shadowsocks",
+            "settings": {
+                "network": "tcp,udp",
+                "clients": [
+                    { "password": "${shadowsocksPassword1}", "method": "${shadowsocksMethod}", "email": "password101@gmail.com" },
+                    { "password": "${shadowsocksPassword2}", "method": "${shadowsocksMethod}", "email": "password102@gmail.com" },
+                    { "password": "${shadowsocksPassword3}", "method": "${shadowsocksMethod}", "email": "password103@gmail.com" },
+                    { "password": "${shadowsocksPassword4}", "method": "${shadowsocksMethod}", "email": "password104@gmail.com" },
+                    { "password": "${shadowsocksPassword5}", "method": "${shadowsocksMethod}", "email": "password105@gmail.com" }
+                ]
+            }
+        }
+    ],
+EOM
+
+
+fi
+
+    echo
+    green " 某老姨子提供了可以解锁Netflix新加坡区的服务器, 不保证一直可用"
+    echo
+    read -r -p "是否通过老姨子解锁Netflix新加坡区? 直接回车默认不解锁, 请输入[y/N]:" isV2rayUnlockGoNetflixInput
+    isV2rayUnlockGoNetflixInput=${isV2rayUnlockGoNetflixInput:-n}
+    if [[ $isV2rayUnlockGoNetflixInput == [Nn] ]]; then
+        shadowsocksXrayConfigRouteInput=""
+    else
+        read -r -d '' shadowsocksXrayConfigRouteInput << EOM
+    "routing": {
+        "rules": [
+            {
+                "type": "field",
+                "outboundTag": "GoNetflix",
+                "domain": [ "geosite:netflix", "geosite:disney" ] 
+            },
+            {
+                "type": "field",
+                "outboundTag": "IPv4_out",
+                "network": "udp,tcp"
+            }
+        ]
+    }
+EOM
+    fi
+
+
+
+
+    cat > ${configSSXrayPath}/config.json <<-EOF
+{
+    "log" : {
+        "access": "${configSSAccessLogFilePath}",
+        "error": "${configSSErrorLogFilePath}",
+        "loglevel": "warning"
+    },
+    ${shadowsocksXrayConfigInboundInput}
+    "outbounds": [
+        {
+            "protocol": "freedom",
+            "tag": "direct"
+        },
+        {
+            "protocol": "blackhole",
+            "tag": "block"
+        },        
+        {
+            "tag": "GoNetflix",
+            "protocol": "vmess",
+            "streamSettings": {
+                "network": "ws",
+                "security": "tls",
+                "tlsSettings": {
+                    "allowInsecure": false
+                },
+                "wsSettings": {
+                    "path": "ws"
+                }
+            },
+            "mux": {
+                "enabled": true,
+                "concurrency": 8
+            },
+            "settings": {
+                "vnext": [{
+                    "address": "free-sg-01.unblocknetflix.cf",
+                    "port": 443,
+                    "users": [
+                        { "id": "402d7490-6d4b-42d4-80ed-e681b0e6f1f9", "security": "auto", "alterId": 0 }
+                    ]
+                }]
+            }
+        }
+
+    ],
+    ${shadowsocksXrayConfigRouteInput}
+}
+EOF
+
+
+
+
+
+        cat > ${osSystemMdPath}shadowsocksxray.service <<-EOF
+[Unit]
+Description=Xray Service
+Documentation=https://github.com/xtls
+After=network.target nss-lookup.target
+
+[Service]
+Type=simple
+# This service runs as root. You may consider to run it as another user for security concerns.
+# By uncommenting User=nobody and commenting out User=root, the service will run as user nobody.
+# More discussion at https://github.com/v2ray/v2ray-core/issues/1011
+User=root
+#User=nobody
+#CapabilityBoundingSet=CAP_NET_ADMIN CAP_NET_BIND_SERVICE
+NoNewPrivileges=true
+ExecStart=${configSSXrayPath}/xray run -config ${configSSXrayPath}/config.json
+Restart=on-failure
+RestartPreventExitStatus=23
+LimitNPROC=10000
+LimitNOFILE=1000000
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+    ${sudoCmd} chmod +x ${configSSXrayPath}/xray
+    ${sudoCmd} chmod +x ${osSystemMdPath}shadowsocksxray.service
+    ${sudoCmd} systemctl daemon-reload
+    
+    ${sudoCmd} systemctl enable shadowsocksxray.service
+    ${sudoCmd} systemctl restart shadowsocksxray.service
+
+
+
+    # 设置 cron 定时任务
+    # https://stackoverflow.com/questions/610839/how-can-i-programmatically-create-a-new-cron-job
+
+    (crontab -l ; echo "10 4 * * 0,1,2,3,4,5,6 rm -f /root/ss-*") | sort - | uniq - | crontab -
+    (crontab -l ; echo "20 4 * * 0,1,2,3,4,5,6 systemctl restart shadowsocksxray.service") | sort - | uniq - | crontab -
+
+
+
+if [[ "${isShadowsocksMethodInput}" == "6" || "${isShadowsocksMethodInput}" == "7" || "${isShadowsocksMethodInput}" == "8" ]]; then
+    configShadowsocksPasswordPrefix="${shadowsocksPassword0}:"
+else
+    configShadowsocksPasswordPrefix=""
+fi
+
+    configShadowsocksLink=$(echo -n "${shadowsocksMethod}:${configShadowsocksPasswordPrefix}${shadowsocksPassword1}@${configNetworkVPSIP}:${configSSXrayPort}" | base64 -w0)
+    configShadowsocksLinkFull="ss://${configShadowsocksLink}"
+
+    cat > ${configSSXrayPath}/clientConfig.json <<-EOF
+
+=========== 客户端 Shadowsocks 配置参数 密码任选其一 =============
+
+{
+    协议: Shadowsocks,
+    地址: IP ${configNetworkVPSIP},
+    端口: ${configSSXrayPort},
+    加密方式: ${shadowsocksMethod},
+    密码1: ${configShadowsocksPasswordPrefix}${shadowsocksPassword1},
+    密码2: ${configShadowsocksPasswordPrefix}${shadowsocksPassword2},
+    密码3: ${configShadowsocksPasswordPrefix}${shadowsocksPassword3},
+    密码4: ${configShadowsocksPasswordPrefix}${shadowsocksPassword4},
+    密码5: ${configShadowsocksPasswordPrefix}${shadowsocksPassword5},
+    别名:自己起个任意名称
+}
+
+Shadowsocks 导入链接:
+ss://${shadowsocksMethod}:${configShadowsocksPasswordPrefix}${shadowsocksPassword1}@${configNetworkVPSIP}:${configSSXrayPort}
+
+或
+
+${configShadowsocksLinkFull}
+
+
+EOF
+
+
+    showHeaderGreen " Shadowsocks Xray ${versionXray} 安装成功 !"
+
+	red " Shadowsocksxray 服务器端配置路径 ${configSSXrayPath}/config.json !"
+	green " Shadowsocksxray 访问日志 ${configSSAccessLogFilePath} !"
+	green " Shadowsocksxray 错误日志 ${configSSErrorLogFilePath} ! "
+	green " Shadowsocksxray 查看日志命令: journalctl -n 50 -u shadowsocksxray.service "
+	green " Shadowsocksxray 停止命令: systemctl stop shadowsocksxray.service  启动命令: systemctl start shadowsocksxray.service "
+	green " Shadowsocksxray 重启命令: systemctl restart shadowsocksxray.service"
+	green " Shadowsocksxray 查看运行状态命令:  systemctl status shadowsocksxray.service "
+	green " Shadowsocksxray 服务器 每天会自动重启, 防止内存泄漏. 运行 crontab -l 命令 查看定时重启命令 !"
+
+    echo
+	cat "${configSSXrayPath}/clientConfig.json"
+    echo
+
+}
+
+
+
+
+function removeShadowsocks(){
+
+    if [[ -f "${configSSXrayPath}/xray" ]]; then
+        echo
+        green " ================================================== "
+        green " Are you sure to remove Shadowsocks Xray ? "
+        echo
+        read -r -p "是否确认卸载 Shadowsocks Xray? 直接回车默认卸载, 请输入[Y/n]:" isRemoveShadowsocksServerInput
+        isRemoveShadowsocksServerInput=${isRemoveShadowsocksServerInput:-Y}
+
+        if [[ "${isRemoveShadowsocksServerInput}" == [Yy] ]]; then
+
+            ${sudoCmd} systemctl stop shadowsocksxray.service
+            ${sudoCmd} systemctl disable shadowsocksxray.service
+
+            rm -rf ${configSSXrayPath}
+            rm -f ${osSystemMdPath}shadowsocksxray.service
+            rm -f ${configSSAccessLogFilePath}
+            rm -f ${configSSErrorLogFilePath}
+
+            crontab -l | grep -v "rm" | crontab -
+            crontab -l | grep -v "shadowsocksxray" | crontab -
+
+            showHeaderGreen " Shadowsocks Xray 卸载完毕 !" \
+            " Shadowsocks Xray uninstalled successfully !"
+            
+        fi
+
+    else
+        showHeaderRed " 系统没有安装 Shadowsocks Xray, 退出卸载 !" \
+        " Shadowsocks Xray not found, exit !"
+        exit 0
+    fi
+
+
+  
+
+    if [[ -f "${configSSRustPath}/ssserver" ]]; then
+        echo
+        green " ================================================== "
+        green " Are you sure to remove Shadowsocks Rust ? "
+        echo
+        read -r -p "是否确认卸载 Shadowsocks Rust? 直接回车默认卸载, 请输入[Y/n]:" isRemoveShadowsocksServerInput
+        isRemoveShadowsocksServerInput=${isRemoveShadowsocksServerInput:-Y}
+
+        if [[ "${isRemoveShadowsocksServerInput}" == [Yy] ]]; then
+
+            ${sudoCmd} systemctl stop shadowsocksrust.service
+            ${sudoCmd} systemctl disable shadowsocksrust.service
+
+            rm -rf ${configSSRustPath}
+            rm -f ${osSystemMdPath}shadowsocksrust.service
+
+            crontab -l | grep -v "shadowsocksrust" | crontab -
+
+            showHeaderGreen " Shadowsocks Rust 卸载完毕 !" \
+            " Shadowsocks Rust uninstalled successfully !"
+        fi
+    else
+        showHeaderRed " 系统没有安装 Shadowsocks Rust, 退出卸载 !" \
+        " Shadowsocks Rust not found, exit !"
+        exit 0
+    fi
+
+}
 
 
 
@@ -3143,6 +3908,10 @@ function removeTrojan(){
 function downloadV2rayXrayBin(){
     if [ -z $1 ]; then
         tempDownloadV2rayPath="${configV2rayPath}"
+    elif [ $1 = "shadowsocks" ]; then
+        isXray="yes"
+        tempDownloadV2rayPath="${configSSXrayPath}"
+
     else
         tempDownloadV2rayPath="${configDownloadTempPath}/upgrade/${promptInfoXrayName}"
     fi
@@ -3180,7 +3949,7 @@ function downloadV2rayXrayBin(){
 function inputV2rayStreamSettings(){
     echo
     green " =================================================="
-    yellow " 请选择 V2ray或Xray的 StreamSettings 底层传输协议, 默认为3 Websocket"
+    yellow " 请选择 V2ray或Xray的 StreamSettings 传输协议, 默认为3 Websocket"
     echo
     green " 1. TCP "
     green " 2. KCP "
@@ -3190,7 +3959,7 @@ function inputV2rayStreamSettings(){
     green " 6. gRPC 支持CDN"
     green " 7. WebSocket + gRPC 支持CDN"
     echo
-    read -p "请选择底层传输协议? 直接回车默认选3 Websocket, 请输入纯数字:" isV2rayStreamSettingInput
+    read -p "请选择传输协议? 直接回车默认选3 Websocket, 请输入纯数字:" isV2rayStreamSettingInput
     isV2rayStreamSettingInput=${isV2rayStreamSettingInput:-3}
 
     if [[ $isV2rayStreamSettingInput == 1 ]]; then
@@ -3282,7 +4051,7 @@ function inputV2rayWSPath(){
         configV2rayWSH2Text="HTTP2"
     fi 
 
-    read -p "是否自定义${promptInfoXrayName}的 ${configV2rayWSH2Text}的Path? 直接回车默认创建随机路径, 请输入自定义路径(不要输入/):" isV2rayUserWSPathInput
+    read -r -p "是否自定义${promptInfoXrayName}的 ${configV2rayWSH2Text}的Path? 直接回车默认创建随机路径, 请输入自定义路径(不要输入/):" isV2rayUserWSPathInput
     isV2rayUserWSPathInput=${isV2rayUserWSPathInput:-${configV2rayWebSocketPath}}
 
     if [[ -z $isV2rayUserWSPathInput ]]; then
@@ -3345,14 +4114,14 @@ function checkPortInUse(){
     if [ $1 = "999999" ]; then
         echo
     elif [[ $1 -gt 1 && $1 -le 65535 ]]; then
-            
-        netstat -tulpn | grep [0-9]:$1 -q ; 
-        if [ $? -eq 1 ]; then 
+        isPortUsed=$(netstat -tulpn | grep -e ":$1") ;
+        if [ -z "${isPortUsed}" ]; then 
             green "输入的端口号 $1 没有被占用, 继续安装..."  
             
-        else 
-            red "输入的端口号 $1 已被占用! 请退出安装, 检查端口是否已被占用 或 重新输入!" 
-            inputV2rayServerPort $2 
+        else
+            processInUsedName=$(echo "${isPortUsed}" | awk '{print $7}' | awk -F"/" '{print $2}')
+            red "输入的端口号 $1 已被 ${processInUsedName} 占用! 请退出安装, 检查端口是否已被占用 或 重新输入!"  
+            inputV2rayServerPort $2
         fi
     else
         red "输入的端口号错误! 必须是[1-65535]. 请重新输入" 
@@ -3404,14 +4173,23 @@ function generateVmessImportLink(){
         configV2rayVmessLinkStreamSetting2="grpc"
     fi
 
+    configV2rayProtocolDisplayName="${configV2rayProtocol}"
+    configV2rayProtocolDisplayHeaderType="none"
+    configV2rayVmessLinkConfigPath=""
+    configV2rayVmessLinkConfigPath2=""
+
     if [[ "${configV2rayWorkingMode}" == "vlessTCPVmessWS" ]]; then
         configV2rayVmessLinkStreamSetting1="ws"
         configV2rayVmessLinkStreamSetting2="tcp"
 
         configV2rayVmessLinkConfigPath="${configV2rayWebSocketPath}"
-        configV2rayVmessLinkConfigPath2="tcp${configV2rayWebSocketPath}" 
+        configV2rayVmessLinkConfigPath2="/tcp${configV2rayWebSocketPath}" 
 
-        configV2rayVmessLinkConfigTls="tls"      
+        configV2rayVmessLinkConfigTls="tls" 
+
+        configV2rayProtocolDisplayName="vmess"
+
+        configV2rayProtocolDisplayHeaderType="http"
     fi
 
 
@@ -3421,8 +4199,7 @@ function generateVmessImportLink(){
         configV2rayVmessLinkConfigHost="none"
     fi
 
-    configV2rayVmessLinkConfigPath=""
-    configV2rayVmessLinkConfigPath2=""
+
     if [[ "${configV2rayStreamSetting}" == "kcp" || "${configV2rayStreamSetting}" == "quic" ]]; then
         configV2rayVmessLinkConfigPath="${configV2rayKCPSeedPassword}"
 
@@ -3440,7 +4217,7 @@ function generateVmessImportLink(){
     cat > ${configV2rayVmessImportLinkFile1Path} <<-EOF
 {
     "v": "2",
-    "ps": "${configSSLDomain}_${configV2rayProtocol}_${configV2rayVmessLinkStreamSetting1}",
+    "ps": "${configSSLDomain}_${configV2rayProtocolDisplayName}_${configV2rayVmessLinkStreamSetting1}",
     "add": "${configSSLDomain}",
     "port": "${configV2rayPortShowInfo}",
     "id": "${v2rayPassword1}",
@@ -3458,13 +4235,13 @@ EOF
     cat > ${configV2rayVmessImportLinkFile2Path} <<-EOF
 {
     "v": "2",
-    "ps": "${configSSLDomain}_${configV2rayProtocol}_${configV2rayVmessLinkStreamSetting2}",
+    "ps": "${configSSLDomain}_${configV2rayProtocolDisplayName}_${configV2rayVmessLinkStreamSetting2}",
     "add": "${configSSLDomain}",
     "port": "${configV2rayPortShowInfo}",
     "id": "${v2rayPassword1}",
     "aid": "0",
     "net": "${configV2rayVmessLinkStreamSetting2}",
-    "type": "none",
+    "type": "${configV2rayProtocolDisplayHeaderType}",
     "host": "${configV2rayVmessLinkConfigHost}",
     "path": "${configV2rayVmessLinkConfigPath2}",
     "tls": "${configV2rayVmessLinkConfigTls}",
@@ -3487,21 +4264,23 @@ function generateVLessImportLink(){
     if [[ "${configV2rayStreamSetting}" == "" ]]; then
 
         configV2rayVlessXtlsFlow="tls"
+        configV2rayVlessXtlsFlowShowInfo="空"
         if [[ "${configV2rayIsTlsShowInfo}" == "xtls" ]]; then
             configV2rayVlessXtlsFlow="xtls&flow=xtls-rprx-direct"
+            configV2rayVlessXtlsFlowShowInfo="xtls-rprx-direct"
         fi
 
         if [[ "$configV2rayWorkingMode" == "vlessgRPC" ]]; then
             cat > ${configV2rayVlessImportLinkFile1Path} <<-EOF
-${configV2rayProtocol}://${v2rayPassword1UrlEncoded}@${configSSLDomain}:${configV2rayPortShowInfo}?encryption=none&security=${configV2rayVlessXtlsFlow}&type=grpc&host=${configSSLDomain}&serviceName=%2f${configV2rayGRPCServiceName}#${configSSLDomain}+gRPC_protocol
+${configV2rayProtocol}://${v2rayPassword1UrlEncoded}@${configSSLDomain}:${configV2rayPortShowInfo}?encryption=none&security=${configV2rayVlessXtlsFlow}&type=grpc&host=${configSSLDomain}&serviceName=%2f${configV2rayGRPCServiceName}#${configSSLDomain}+gRPC_${configV2rayIsTlsShowInfo}
 EOF
         else
             cat > ${configV2rayVlessImportLinkFile1Path} <<-EOF
-${configV2rayProtocol}://${v2rayPassword1UrlEncoded}@${configSSLDomain}:${configV2rayPortShowInfo}?encryption=none&security=${configV2rayVlessXtlsFlow}&type=tcp&host=${configSSLDomain}#${configSSLDomain}+TCP_protocol
+${configV2rayProtocol}://${v2rayPassword1UrlEncoded}@${configSSLDomain}:${configV2rayPortShowInfo}?encryption=none&security=${configV2rayVlessXtlsFlow}&type=tcp&host=${configSSLDomain}#${configSSLDomain}+TCP_${configV2rayIsTlsShowInfo}
 EOF
 
             cat > ${configV2rayVlessImportLinkFile2Path} <<-EOF
-${configV2rayProtocol}://${v2rayPassword1UrlEncoded}@${configSSLDomain}:${configV2rayPortShowInfo}?encryption=none&security=tls&type=ws&host=${configSSLDomain}&path=%2f${configV2rayWebSocketPath}#${configSSLDomain}+WebSocket_protocol
+${configV2rayProtocol}://${v2rayPassword1UrlEncoded}@${configSSLDomain}:${configV2rayPortShowInfo}?encryption=none&security=tls&type=ws&host=${configSSLDomain}&path=%2f${configV2rayWebSocketPath}#${configSSLDomain}+WebSocket_${configV2rayIsTlsShowInfo}
 EOF
         fi
 
@@ -3512,10 +4291,10 @@ EOF
 	    if [[ "${configV2rayProtocol}" == "vless" ]]; then
 
             cat > ${configV2rayVlessImportLinkFile1Path} <<-EOF
-${configV2rayProtocol}://${v2rayPassword1UrlEncoded}@${configSSLDomain}:${configV2rayPortShowInfo}?encryption=none&security=${configV2rayIsTlsShowInfo}&type=${configV2rayVmessLinkStreamSetting1}&host=${configSSLDomain}&path=%2f${configV2rayVmessLinkConfigPath}&headerType=none&seed=${configV2rayKCPSeedPassword}&quicSecurity=none&key=${configV2rayKCPSeedPassword}&serviceName=%2f${configV2rayVmessLinkConfigPath}#${configSSLDomain}+${configV2rayVmessLinkStreamSetting1}_protocol
+${configV2rayProtocol}://${v2rayPassword1UrlEncoded}@${configSSLDomain}:${configV2rayPortShowInfo}?encryption=none&security=${configV2rayIsTlsShowInfo}&type=${configV2rayVmessLinkStreamSetting1}&host=${configSSLDomain}&path=%2f${configV2rayVmessLinkConfigPath}&headerType=none&seed=${configV2rayKCPSeedPassword}&quicSecurity=none&key=${configV2rayKCPSeedPassword}&serviceName=${configV2rayVmessLinkConfigPath}#${configSSLDomain}+${configV2rayVmessLinkStreamSetting1}_${configV2rayIsTlsShowInfo}
 EOF
             cat > ${configV2rayVlessImportLinkFile2Path} <<-EOF
-${configV2rayProtocol}://${v2rayPassword1UrlEncoded}@${configSSLDomain}:${configV2rayPortShowInfo}?encryption=none&security=${configV2rayIsTlsShowInfo}&type=${configV2rayVmessLinkStreamSetting2}&host=${configSSLDomain}&path=%2f${configV2rayVmessLinkConfigPath2}&headerType=none&seed=${configV2rayKCPSeedPassword}&quicSecurity=none&key=${configV2rayKCPSeedPassword}&serviceName=%2f${configV2rayVmessLinkConfigPath2}#${configSSLDomain}+${configV2rayVmessLinkStreamSetting1}_protocol
+${configV2rayProtocol}://${v2rayPassword1UrlEncoded}@${configSSLDomain}:${configV2rayPortShowInfo}?encryption=none&security=${configV2rayIsTlsShowInfo}&type=${configV2rayVmessLinkStreamSetting2}&host=${configSSLDomain}&path=%2f${configV2rayVmessLinkConfigPath2}&headerType=none&seed=${configV2rayKCPSeedPassword}&quicSecurity=none&key=${configV2rayKCPSeedPassword}&serviceName=${configV2rayVmessLinkConfigPath2}#${configSSLDomain}+${configV2rayVmessLinkStreamSetting2}_${configV2rayIsTlsShowInfo}
 EOF
 
             v2rayVlessLinkQR1="$(cat ${configV2rayVlessImportLinkFile1Path})"
@@ -3687,7 +4466,7 @@ function installV2ray(){
             fi        
         fi
     else
-        read -p "是否使用Xray内核? 直接回车默认为V2ray内核, 请输入[y/N]:" isV2rayOrXrayCoreInput
+        read -r -p "是否使用Xray内核? 直接回车默认为V2ray内核, 请输入[y/N]:" isV2rayOrXrayCoreInput
         isV2rayOrXrayCoreInput=${isV2rayOrXrayCoreInput:-n}
 
         if [[ $isV2rayOrXrayCoreInput == [Yy] ]]; then
@@ -3824,6 +4603,15 @@ EOM
     V2rayUnlockVideoSiteOutboundTagText=""
     unlockWARPServerIpInput="127.0.0.1"
     unlockWARPServerPortInput="40000"
+    configWARPPortFilePath="${HOME}/wireguard/warp-port"
+    configWARPPortLocalServerPort="40000"
+    configWARPPortLocalServerText=""
+
+    if [[ -f "${configWARPPortFilePath}" ]]; then
+        configWARPPortLocalServerPort="$(cat ${configWARPPortFilePath})"
+        configWARPPortLocalServerText="检测到本机已安装 WARP Sock5, 端口号 ${configWARPPortLocalServerPort}"
+    fi
+
     green " =================================================="
     yellow " 是否要解锁 Netflix HBO Disney+ 等流媒体网站"
     read -p "是否要解锁流媒体网站? 直接回车默认不解锁, 请输入[y/N]:" isV2rayUnlockStreamWebsiteInput
@@ -3903,16 +4691,8 @@ EOM
     
     v2rayConfigRouteInput=""
     V2rayUnlockVideoSiteOutboundTagText=""
-    unlockWARPServerIpInput="127.0.0.1"
-    unlockWARPServerPortInput="40000"
-    configWARPPortFilePath="${HOME}/wireguard/warp-port"
-    configWARPPortLocalServerPort="40000"
-    configWARPPortLocalServerText=""
 
-    if [[ -f "${configWARPPortFilePath}" ]]; then
-        configWARPPortLocalServerPort="$(cat ${configWARPPortFilePath})"
-        configWARPPortLocalServerText="检测到本机已安装 WARP Sock5, 端口号 ${configWARPPortLocalServerPort}"
-    fi
+
 
     if [[ $isV2rayUnlockWarpModeInput == "1" ]]; then
         echo
@@ -3980,13 +4760,13 @@ EOM
             V2rayUnlockVideoSiteRuleText="\"geosite:netflix\", \"geosite:youtube\", \"geosite:pornhub\""
 
         elif [[ $isV2rayUnlockVideoSiteInput == "7" ]]; then
-            V2rayUnlockVideoSiteRuleText="\"geosite:netflix\", \"geosite:spotify\", \"geosite:hulu\", \"geosite:hbo\", \"geosite:disney\", \"geosite:pornhub\""
+            V2rayUnlockVideoSiteRuleText="\"geosite:netflix\", \"geosite:disney\", \"geosite:spotify\", \"geosite:hulu\", \"geosite:hbo\", \"geosite:pornhub\""
 
         elif [[ $isV2rayUnlockVideoSiteInput == "8" ]]; then
-            V2rayUnlockVideoSiteRuleText="\"geosite:netflix\", \"geosite:spotify\", \"geosite:youtube\", \"geosite:hulu\", \"geosite:hbo\", \"geosite:disney\", \"geosite:pornhub\""
+            V2rayUnlockVideoSiteRuleText="\"geosite:netflix\", \"geosite:disney\", \"geosite:spotify\", \"geosite:youtube\", \"geosite:hulu\", \"geosite:hbo\", \"geosite:pornhub\""
 
         elif [[ $isV2rayUnlockVideoSiteInput == "9" ]]; then
-            V2rayUnlockVideoSiteRuleText="\"geosite:netflix\", \"geosite:spotify\", \"geosite:youtube\", \"geosite:bahamut\", \"geosite:hulu\", \"geosite:hbo\", \"geosite:disney\", \"geosite:bbc\", \"geosite:4chan\", \"geosite:fox\", \"geosite:abema\", \"geosite:dmm\", \"geosite:niconico\", \"geosite:pixiv\", \"geosite:viu\", \"geosite:pornhub\""
+            V2rayUnlockVideoSiteRuleText="\"geosite:netflix\", \"geosite:disney\", \"geosite:spotify\", \"geosite:youtube\", \"geosite:bahamut\", \"geosite:hulu\", \"geosite:hbo\", \"geosite:bbc\", \"geosite:4chan\", \"geosite:fox\", \"geosite:abema\", \"geosite:dmm\", \"geosite:niconico\", \"geosite:pixiv\", \"geosite:viu\", \"geosite:pornhub\""
 
         fi
 
@@ -3997,8 +4777,8 @@ EOM
 
 
     echo
-    yellow " 某大佬提供了可以解锁Netflix新加坡区的V2ray服务器, 不保证一直可用"
-    read -p "是否通过神秘力量解锁Netflix新加坡区? 直接回车默认不解锁, 请输入[y/N]:" isV2rayUnlockGoNetflixInput
+    yellow " 某老姨子提供了可以解锁Netflix新加坡区的服务器, 不保证一直可用"
+    read -p "是否通过老姨子解锁Netflix新加坡区? 直接回车默认不解锁, 请输入[y/N]:" isV2rayUnlockGoNetflixInput
     isV2rayUnlockGoNetflixInput=${isV2rayUnlockGoNetflixInput:-n}
 
     v2rayConfigRouteGoNetflixInput=""
@@ -4008,11 +4788,13 @@ EOM
     else
         removeString="\"geosite:netflix\", "
         V2rayUnlockVideoSiteRuleText=${V2rayUnlockVideoSiteRuleText#"$removeString"}
+        removeString2="\"geosite:disney\", "
+        V2rayUnlockVideoSiteRuleText=${V2rayUnlockVideoSiteRuleText#"$removeString2"}
         read -r -d '' v2rayConfigRouteGoNetflixInput << EOM
             {
                 "type": "field",
                 "outboundTag": "GoNetflix",
-                "domain": [ "geosite:netflix" ] 
+                "domain": [ "geosite:netflix", "geosite:disney" ] 
             },
 EOM
 
@@ -4036,7 +4818,7 @@ EOM
             },
             "settings": {
                 "vnext": [{
-                    "address": "free-sg-01.gonetflix.xyz",
+                    "address": "free-sg-01.unblocknetflix.cf",
                     "port": 443,
                     "users": [
                         { "id": "402d7490-6d4b-42d4-80ed-e681b0e6f1f9", "security": "auto", "alterId": 0 }
@@ -4063,7 +4845,7 @@ EOM
     green " 3. 使用 WARP IPv6 解锁 推荐使用"
     green " 4. 通过转发到可解锁的v2ray或xray服务器解锁"
     echo
-    read -p "请输入解锁选项? 直接回车默认选1 不解锁, 请输入纯数字:" isV2rayUnlockGoogleInput
+    read -r -p "请输入解锁选项? 直接回车默认选1 不解锁, 请输入纯数字:" isV2rayUnlockGoogleInput
     isV2rayUnlockGoogleInput=${isV2rayUnlockGoogleInput:-1}
 
     if [[ "${isV2rayUnlockWarpModeInput}" == "${isV2rayUnlockGoogleInput}" ]]; then
@@ -4109,7 +4891,7 @@ EOM
 
             echo
             yellow " ${configWARPPortLocalServerText}"
-            read -p "请输入WARP Sock5 代理服务器端口号? 直接回车默认${configWARPPortLocalServerPort}, 请输入纯数字:" unlockWARPServerPortInput
+            read -r -p "请输入WARP Sock5 代理服务器端口号? 直接回车默认${configWARPPortLocalServerPort}, 请输入纯数字:" unlockWARPServerPortInput
             unlockWARPServerPortInput=${unlockWARPServerPortInput:-$configWARPPortLocalServerPort}       
 
         elif [[ $isV2rayUnlockGoogleInput == "3" ]]; then
@@ -4174,10 +4956,8 @@ EOM
                 "domainStrategy": "UseIPv6" 
             }
         },
-        
         ${v2rayConfigOutboundV2rayServerInput}
         ${v2rayConfigOutboundV2rayGoNetflixServerInput}
-
         {
             "tag": "WARP_out",
             "protocol": "socks",
@@ -4211,12 +4991,12 @@ EOM
     echo
     green " =================================================="
     if [ "$isXray" = "no" ] ; then
-        getTrojanAndV2rayVersion "v2ray"
+        getV2rayVersion "v2ray"
         green "    准备下载并安装 V2ray Version: ${versionV2ray} !"
         promptInfoXrayInstall="V2ray"
         promptInfoXrayVersion=${versionV2ray}
     else
-        getTrojanAndV2rayVersion "xray"
+        getV2rayVersion "xray"
         green "    准备下载并安装 Xray Version: ${versionXray} !"
         promptInfoXrayInstall="Xray"
         promptInfoXrayVersion=${versionXray}
@@ -4224,8 +5004,8 @@ EOM
     echo
 
 
-    mkdir -p ${configV2rayPath}
-    cd ${configV2rayPath}
+    mkdir -p "${configV2rayPath}"
+    cd "${configV2rayPath}" || exit
     rm -rf ${configV2rayPath}/*
 
     downloadV2rayXrayBin
@@ -4233,18 +5013,18 @@ EOM
 
     # 增加 v2ray 服务器端配置
 
-    trojanPassword1=$(cat /dev/urandom | head -1 | md5sum | head -c 10)
-    trojanPassword2=$(cat /dev/urandom | head -1 | md5sum | head -c 10)
-    trojanPassword3=$(cat /dev/urandom | head -1 | md5sum | head -c 10)
-    trojanPassword4=$(cat /dev/urandom | head -1 | md5sum | head -c 10)
-    trojanPassword5=$(cat /dev/urandom | head -1 | md5sum | head -c 10)
-    trojanPassword6=$(cat /dev/urandom | head -1 | md5sum | head -c 10)
-    trojanPassword7=$(cat /dev/urandom | head -1 | md5sum | head -c 10)
-    trojanPassword8=$(cat /dev/urandom | head -1 | md5sum | head -c 10)
-    trojanPassword9=$(cat /dev/urandom | head -1 | md5sum | head -c 10)
-    trojanPassword10=$(cat /dev/urandom | head -1 | md5sum | head -c 10)
-
     if [[ "$configV2rayWorkingMode" == "vlessTCPWSTrojan" ]]; then
+        trojanPassword1=$(cat /dev/urandom | head -1 | md5sum | head -c 10)
+        trojanPassword2=$(cat /dev/urandom | head -1 | md5sum | head -c 10)
+        trojanPassword3=$(cat /dev/urandom | head -1 | md5sum | head -c 10)
+        trojanPassword4=$(cat /dev/urandom | head -1 | md5sum | head -c 10)
+        trojanPassword5=$(cat /dev/urandom | head -1 | md5sum | head -c 10)
+        trojanPassword6=$(cat /dev/urandom | head -1 | md5sum | head -c 10)
+        trojanPassword7=$(cat /dev/urandom | head -1 | md5sum | head -c 10)
+        trojanPassword8=$(cat /dev/urandom | head -1 | md5sum | head -c 10)
+        trojanPassword9=$(cat /dev/urandom | head -1 | md5sum | head -c 10)
+        trojanPassword10=$(cat /dev/urandom | head -1 | md5sum | head -c 10)
+
         echo
         yellow " 请输入 trojan 密码的前缀? (会生成若干随机密码和带有该前缀的密码)"
         read -p "请输入密码的前缀, 直接回车默认随机生成前缀:" configTrojanPasswordPrefixInput
@@ -4253,500 +5033,173 @@ EOM
 
     if [ "${isTrojanMultiPassword}" = "no" ] ; then
     read -r -d '' v2rayConfigUserpasswordTrojanInput << EOM
-                    {
-                        "password": "${trojanPassword1}", "level": 0, "email": "password111@gmail.com"
-                    },
-                    {
-                        "password": "${trojanPassword2}", "level": 0, "email": "password112@gmail.com"
-                    },
-                    {
-                        "password": "${trojanPassword3}", "level": 0, "email": "password113@gmail.com"
-                    },
-                    {
-                        "password": "${trojanPassword4}", "level": 0, "email": "password114@gmail.com"
-                    },
-                    {
-                        "password": "${trojanPassword5}", "level": 0, "email": "password115@gmail.com"
-                    },
-                    {
-                        "password": "${trojanPassword6}", "level": 0, "email": "password116@gmail.com"
-                    },
-                    {
-                        "password": "${trojanPassword7}", "level": 0, "email": "password117@gmail.com"
-                    },
-                    {
-                        "password": "${trojanPassword8}", "level": 0, "email": "password118@gmail.com"
-                    },
-                    {
-                        "password": "${trojanPassword9}", "level": 0, "email": "password119@gmail.com"
-                    },
-                    {
-                        "password": "${trojanPassword10}", "level": 0, "email": "password120@gmail.com"
-                    },
-                    {
-                        "password": "${configTrojanPasswordPrefixInput}202001", "level": 0, "email": "password201@gmail.com"
-                    },
-                    {
-                        "password": "${configTrojanPasswordPrefixInput}202002", "level": 0, "email": "password202@gmail.com"
-                    },
-                    {
-                        "password": "${configTrojanPasswordPrefixInput}202003", "level": 0, "email": "password203@gmail.com"
-                    },
-                    {
-                        "password": "${configTrojanPasswordPrefixInput}202004", "level": 0, "email": "password204@gmail.com"
-                    },
-                    {
-                        "password": "${configTrojanPasswordPrefixInput}202005", "level": 0, "email": "password205@gmail.com"
-                    },
-                    {
-                        "password": "${configTrojanPasswordPrefixInput}202006", "level": 0, "email": "password206@gmail.com"
-                    },
-                    {
-                        "password": "${configTrojanPasswordPrefixInput}202007", "level": 0, "email": "password207@gmail.com"
-                    },
-                    {
-                        "password": "${configTrojanPasswordPrefixInput}202008", "level": 0, "email": "password208@gmail.com"
-                    },
-                    {
-                        "password": "${configTrojanPasswordPrefixInput}202009", "level": 0, "email": "password209@gmail.com"
-                    },
-                    {
-                        "password": "${configTrojanPasswordPrefixInput}202010", "level": 0, "email": "password210@gmail.com"
-                    },
-                    {
-                        "password": "${configTrojanPasswordPrefixInput}202011", "level": 0, "email": "password211@gmail.com"
-                    },
-                    {
-                        "password": "${configTrojanPasswordPrefixInput}202012", "level": 0, "email": "password212@gmail.com"
-                    },
-                    {
-                        "password": "${configTrojanPasswordPrefixInput}202013", "level": 0, "email": "password213@gmail.com"
-                    },
-                    {
-                        "password": "${configTrojanPasswordPrefixInput}202014", "level": 0, "email": "password214@gmail.com"
-                    },
-                    {
-                        "password": "${configTrojanPasswordPrefixInput}202015", "level": 0, "email": "password215@gmail.com"
-                    },
-                    {
-                        "password": "${configTrojanPasswordPrefixInput}202016", "level": 0, "email": "password216@gmail.com"
-                    },
-                    {
-                        "password": "${configTrojanPasswordPrefixInput}202017", "level": 0, "email": "password217@gmail.com"
-                    },
-                    {
-                        "password": "${configTrojanPasswordPrefixInput}202018", "level": 0, "email": "password218@gmail.com"
-                    },
-                    {
-                        "password": "${configTrojanPasswordPrefixInput}202019", "level": 0, "email": "password219@gmail.com"
-                    },
-                    {
-                        "password": "${configTrojanPasswordPrefixInput}202020", "level": 0, "email": "password220@gmail.com"
-                    }
+                    { "password": "${trojanPassword1}", "level": 0, "email": "password111@gmail.com" },
+                    { "password": "${trojanPassword2}", "level": 0, "email": "password112@gmail.com" },
+                    { "password": "${trojanPassword3}", "level": 0, "email": "password113@gmail.com" },
+                    { "password": "${trojanPassword4}", "level": 0, "email": "password114@gmail.com" },
+                    { "password": "${trojanPassword5}", "level": 0, "email": "password115@gmail.com" },
+                    { "password": "${trojanPassword6}", "level": 0, "email": "password116@gmail.com" },
+                    { "password": "${trojanPassword7}", "level": 0, "email": "password117@gmail.com" },
+                    { "password": "${trojanPassword8}", "level": 0, "email": "password118@gmail.com" },
+                    { "password": "${trojanPassword9}", "level": 0, "email": "password119@gmail.com" },
+                    { "password": "${trojanPassword10}", "level": 0, "email": "password120@gmail.com" },
+                    { "password": "${configTrojanPasswordPrefixInput}202201", "level": 0, "email": "password201@gmail.com" },
+                    { "password": "${configTrojanPasswordPrefixInput}202202", "level": 0, "email": "password202@gmail.com" },
+                    { "password": "${configTrojanPasswordPrefixInput}202203", "level": 0, "email": "password203@gmail.com" },
+                    { "password": "${configTrojanPasswordPrefixInput}202204", "level": 0, "email": "password204@gmail.com" },
+                    { "password": "${configTrojanPasswordPrefixInput}202205", "level": 0, "email": "password205@gmail.com" },
+                    { "password": "${configTrojanPasswordPrefixInput}202206", "level": 0, "email": "password206@gmail.com" },
+                    { "password": "${configTrojanPasswordPrefixInput}202207", "level": 0, "email": "password207@gmail.com" },
+                    { "password": "${configTrojanPasswordPrefixInput}202208", "level": 0, "email": "password208@gmail.com" },
+                    { "password": "${configTrojanPasswordPrefixInput}202209", "level": 0, "email": "password209@gmail.com" },
+                    { "password": "${configTrojanPasswordPrefixInput}202210", "level": 0, "email": "password210@gmail.com" }
+
 EOM
     else
 
     read -r -d '' v2rayConfigUserpasswordTrojanInput << EOM
-                    {
-                        "password": "${trojanPassword1}", "level": 0, "email": "password111@gmail.com"
-                    },
-                    {
-                        "password": "${trojanPassword2}", "level": 0, "email": "password112@gmail.com"
-                    },
-                    {
-                        "password": "${trojanPassword3}", "level": 0, "email": "password113@gmail.com"
-                    },
-                    {
-                        "password": "${trojanPassword4}", "level": 0, "email": "password114@gmail.com"
-                    },
-                    {
-                        "password": "${trojanPassword5}", "level": 0, "email": "password115@gmail.com"
-                    },
-                    {
-                        "password": "${trojanPassword6}", "level": 0, "email": "password116@gmail.com"
-                    },
-                    {
-                        "password": "${trojanPassword7}", "level": 0, "email": "password117@gmail.com"
-                    },
-                    {
-                        "password": "${trojanPassword8}", "level": 0, "email": "password118@gmail.com"
-                    },
-                    {
-                        "password": "${trojanPassword9}", "level": 0, "email": "password119@gmail.com"
-                    },
-                    {
-                        "password": "${trojanPassword10}", "level": 0, "email": "password120@gmail.com"
-                    },
-                    {
-                        "password": "${configTrojanPasswordPrefixInput}202000", "level": 0, "email": "password200@gmail.com"
-                    },
-                    {
-                        "password": "${configTrojanPasswordPrefixInput}202001", "level": 0, "email": "password201@gmail.com"
-                    },
-                    {
-                        "password": "${configTrojanPasswordPrefixInput}202002", "level": 0, "email": "password202@gmail.com"
-                    },
-                    {
-                        "password": "${configTrojanPasswordPrefixInput}202003", "level": 0, "email": "password203@gmail.com"
-                    },
-                    {
-                        "password": "${configTrojanPasswordPrefixInput}202004", "level": 0, "email": "password204@gmail.com"
-                    },
-                    {
-                        "password": "${configTrojanPasswordPrefixInput}202005", "level": 0, "email": "password205@gmail.com"
-                    },
-                    {
-                        "password": "${configTrojanPasswordPrefixInput}202006", "level": 0, "email": "password206@gmail.com"
-                    },
-                    {
-                        "password": "${configTrojanPasswordPrefixInput}202007", "level": 0, "email": "password207@gmail.com"
-                    },
-                    {
-                        "password": "${configTrojanPasswordPrefixInput}202008", "level": 0, "email": "password208@gmail.com"
-                    },
-                    {
-                        "password": "${configTrojanPasswordPrefixInput}202009", "level": 0, "email": "password209@gmail.com"
-                    },
-                    {
-                        "password": "${configTrojanPasswordPrefixInput}202010", "level": 0, "email": "password210@gmail.com"
-                    },
-                    {
-                        "password": "${configTrojanPasswordPrefixInput}202011", "level": 0, "email": "password211@gmail.com"
-                    },
-                    {
-                        "password": "${configTrojanPasswordPrefixInput}202012", "level": 0, "email": "password212@gmail.com"
-                    },
-                    {
-                        "password": "${configTrojanPasswordPrefixInput}202013", "level": 0, "email": "password213@gmail.com"
-                    },
-                    {
-                        "password": "${configTrojanPasswordPrefixInput}202014", "level": 0, "email": "password214@gmail.com"
-                    },
-                    {
-                        "password": "${configTrojanPasswordPrefixInput}202015", "level": 0, "email": "password215@gmail.com"
-                    },
-                    {
-                        "password": "${configTrojanPasswordPrefixInput}202016", "level": 0, "email": "password216@gmail.com"
-                    },
-                    {
-                        "password": "${configTrojanPasswordPrefixInput}202017", "level": 0, "email": "password217@gmail.com"
-                    },
-                    {
-                        "password": "${configTrojanPasswordPrefixInput}202018", "level": 0, "email": "password218@gmail.com"
-                    },
-                    {
-                        "password": "${configTrojanPasswordPrefixInput}202019", "level": 0, "email": "password219@gmail.com"
-                    },
-                    {
-                        "password": "${configTrojanPasswordPrefixInput}202020", "level": 0, "email": "password220@gmail.com"
-                    },
-                    {
-                        "password": "${configTrojanPasswordPrefixInput}202021", "level": 0, "email": "password221@gmail.com"
-                    },
-                    {
-                        "password": "${configTrojanPasswordPrefixInput}202022", "level": 0, "email": "password222@gmail.com"
-                    },
-                    {
-                        "password": "${configTrojanPasswordPrefixInput}202023", "level": 0, "email": "password223@gmail.com"
-                    },
-                    {
-                        "password": "${configTrojanPasswordPrefixInput}202024", "level": 0, "email": "password224@gmail.com"
-                    },
-                    {
-                        "password": "${configTrojanPasswordPrefixInput}202025", "level": 0, "email": "password225@gmail.com"
-                    },
-                    {
-                        "password": "${configTrojanPasswordPrefixInput}202026", "level": 0, "email": "password226@gmail.com"
-                    },
-                    {
-                        "password": "${configTrojanPasswordPrefixInput}202027", "level": 0, "email": "password227@gmail.com"
-                    },
-                    {
-                        "password": "${configTrojanPasswordPrefixInput}202028", "level": 0, "email": "password228@gmail.com"
-                    },
-                    {
-                        "password": "${configTrojanPasswordPrefixInput}202029", "level": 0, "email": "password229@gmail.com"
-                    },
-                    {
-                        "password": "${configTrojanPasswordPrefixInput}202030", "level": 0, "email": "password230@gmail.com"
-                    },
-                    {
-                        "password": "${configTrojanPasswordPrefixInput}202031", "level": 0, "email": "password231@gmail.com"
-                    },
-                    {
-                        "password": "${configTrojanPasswordPrefixInput}202032", "level": 0, "email": "password232@gmail.com"
-                    },
-                    {
-                        "password": "${configTrojanPasswordPrefixInput}202033", "level": 0, "email": "password233@gmail.com"
-                    },
-                    {
-                        "password": "${configTrojanPasswordPrefixInput}202034", "level": 0, "email": "password234@gmail.com"
-                    },
-                    {
-                        "password": "${configTrojanPasswordPrefixInput}202035", "level": 0, "email": "password235@gmail.com"
-                    },
-                    {
-                        "password": "${configTrojanPasswordPrefixInput}202036", "level": 0, "email": "password236@gmail.com"
-                    },
-                    {
-                        "password": "${configTrojanPasswordPrefixInput}202037", "level": 0, "email": "password237@gmail.com"
-                    },
-                    {
-                        "password": "${configTrojanPasswordPrefixInput}202038", "level": 0, "email": "password238@gmail.com"
-                    },
-                    {
-                        "password": "${configTrojanPasswordPrefixInput}202039", "level": 0, "email": "password239@gmail.com"
-                    },
-                    {
-                        "password": "${configTrojanPasswordPrefixInput}202040", "level": 0, "email": "password240@gmail.com"
-                    },
-                    {
-                        "password": "${configTrojanPasswordPrefixInput}202041", "level": 0, "email": "password241@gmail.com"
-                    },
-                    {
-                        "password": "${configTrojanPasswordPrefixInput}202042", "level": 0, "email": "password242@gmail.com"
-                    },
-                    {
-                        "password": "${configTrojanPasswordPrefixInput}202043", "level": 0, "email": "password243@gmail.com"
-                    },
-                    {
-                        "password": "${configTrojanPasswordPrefixInput}202044", "level": 0, "email": "password244@gmail.com"
-                    },
-                    {
-                        "password": "${configTrojanPasswordPrefixInput}202045", "level": 0, "email": "password245@gmail.com"
-                    },
-                    {
-                        "password": "${configTrojanPasswordPrefixInput}202046", "level": 0, "email": "password246@gmail.com"
-                    },
-                    {
-                        "password": "${configTrojanPasswordPrefixInput}202047", "level": 0, "email": "password247@gmail.com"
-                    },
-                    {
-                        "password": "${configTrojanPasswordPrefixInput}202048", "level": 0, "email": "password248@gmail.com"
-                    },
-                    {
-                        "password": "${configTrojanPasswordPrefixInput}202049", "level": 0, "email": "password249@gmail.com"
-                    },
-                    {
-                        "password": "${configTrojanPasswordPrefixInput}202050", "level": 0, "email": "password250@gmail.com"
-                    },
-                    {
-                        "password": "${configTrojanPasswordPrefixInput}202051", "level": 0, "email": "password251@gmail.com"
-                    },
-                    {
-                        "password": "${configTrojanPasswordPrefixInput}202052", "level": 0, "email": "password252@gmail.com"
-                    },
-                    {
-                        "password": "${configTrojanPasswordPrefixInput}202053", "level": 0, "email": "password253@gmail.com"
-                    },
-                    {
-                        "password": "${configTrojanPasswordPrefixInput}202054", "level": 0, "email": "password254@gmail.com"
-                    },
-                    {
-                        "password": "${configTrojanPasswordPrefixInput}202055", "level": 0, "email": "password255@gmail.com"
-                    },
-                    {
-                        "password": "${configTrojanPasswordPrefixInput}202056", "level": 0, "email": "password256@gmail.com"
-                    },
-                    {
-                        "password": "${configTrojanPasswordPrefixInput}202057", "level": 0, "email": "password257@gmail.com"
-                    },
-                    {
-                        "password": "${configTrojanPasswordPrefixInput}202058", "level": 0, "email": "password258@gmail.com"
-                    },
-                    {
-                        "password": "${configTrojanPasswordPrefixInput}202059", "level": 0, "email": "password259@gmail.com"
-                    },
-                    {
-                        "password": "${configTrojanPasswordPrefixInput}202060", "level": 0, "email": "password260@gmail.com"
-                    },
-                    {
-                        "password": "${configTrojanPasswordPrefixInput}202061", "level": 0, "email": "password261@gmail.com"
-                    },
-                    {
-                        "password": "${configTrojanPasswordPrefixInput}202062", "level": 0, "email": "password262@gmail.com"
-                    },
-                    {
-                        "password": "${configTrojanPasswordPrefixInput}202063", "level": 0, "email": "password263@gmail.com"
-                    },
-                    {
-                        "password": "${configTrojanPasswordPrefixInput}202064", "level": 0, "email": "password264@gmail.com"
-                    },
-                    {
-                        "password": "${configTrojanPasswordPrefixInput}202065", "level": 0, "email": "password265@gmail.com"
-                    },
-                    {
-                        "password": "${configTrojanPasswordPrefixInput}202066", "level": 0, "email": "password266@gmail.com"
-                    },
-                    {
-                        "password": "${configTrojanPasswordPrefixInput}202067", "level": 0, "email": "password267@gmail.com"
-                    },
-                    {
-                        "password": "${configTrojanPasswordPrefixInput}202068", "level": 0, "email": "password268@gmail.com"
-                    },
-                    {
-                        "password": "${configTrojanPasswordPrefixInput}202069", "level": 0, "email": "password269@gmail.com"
-                    },
-                    {
-                        "password": "${configTrojanPasswordPrefixInput}202070", "level": 0, "email": "password270@gmail.com"
-                    },
-                    {
-                        "password": "${configTrojanPasswordPrefixInput}202071", "level": 0, "email": "password271@gmail.com"
-                    },
-                    {
-                        "password": "${configTrojanPasswordPrefixInput}202072", "level": 0, "email": "password272@gmail.com"
-                    },
-                    {
-                        "password": "${configTrojanPasswordPrefixInput}202073", "level": 0, "email": "password273@gmail.com"
-                    },
-                    {
-                        "password": "${configTrojanPasswordPrefixInput}202074", "level": 0, "email": "password274@gmail.com"
-                    },
-                    {
-                        "password": "${configTrojanPasswordPrefixInput}202075", "level": 0, "email": "password275@gmail.com"
-                    },
-                    {
-                        "password": "${configTrojanPasswordPrefixInput}202076", "level": 0, "email": "password276@gmail.com"
-                    },
-                    {
-                        "password": "${configTrojanPasswordPrefixInput}202077", "level": 0, "email": "password277@gmail.com"
-                    },
-                    {
-                        "password": "${configTrojanPasswordPrefixInput}202078", "level": 0, "email": "password278@gmail.com"
-                    },
-                    {
-                        "password": "${configTrojanPasswordPrefixInput}202079", "level": 0, "email": "password279@gmail.com"
-                    },
-                    {
-                        "password": "${configTrojanPasswordPrefixInput}202080", "level": 0, "email": "password280@gmail.com"
-                    },
-                    {
-                        "password": "${configTrojanPasswordPrefixInput}202081", "level": 0, "email": "password281@gmail.com"
-                    },
-                    {
-                        "password": "${configTrojanPasswordPrefixInput}202082", "level": 0, "email": "password282@gmail.com"
-                    },
-                    {
-                        "password": "${configTrojanPasswordPrefixInput}202083", "level": 0, "email": "password283@gmail.com"
-                    },
-                    {
-                        "password": "${configTrojanPasswordPrefixInput}202084", "level": 0, "email": "password284@gmail.com"
-                    },
-                    {
-                        "password": "${configTrojanPasswordPrefixInput}202085", "level": 0, "email": "password285@gmail.com"
-                    },
-                    {
-                        "password": "${configTrojanPasswordPrefixInput}202086", "level": 0, "email": "password286@gmail.com"
-                    },
-                    {
-                        "password": "${configTrojanPasswordPrefixInput}202087", "level": 0, "email": "password287@gmail.com"
-                    },
-                    {
-                        "password": "${configTrojanPasswordPrefixInput}202088", "level": 0, "email": "password288@gmail.com"
-                    },
-                    {
-                        "password": "${configTrojanPasswordPrefixInput}202089", "level": 0, "email": "password289@gmail.com"
-                    },
-                    {
-                        "password": "${configTrojanPasswordPrefixInput}202090", "level": 0, "email": "password290@gmail.com"
-                    },
-                    {
-                        "password": "${configTrojanPasswordPrefixInput}202091", "level": 0, "email": "password291@gmail.com"
-                    },
-                    {
-                        "password": "${configTrojanPasswordPrefixInput}202092", "level": 0, "email": "password292@gmail.com"
-                    },
-                    {
-                        "password": "${configTrojanPasswordPrefixInput}202093", "level": 0, "email": "password293@gmail.com"
-                    },
-                    {
-                        "password": "${configTrojanPasswordPrefixInput}202094", "level": 0, "email": "password294@gmail.com"
-                    },
-                    {
-                        "password": "${configTrojanPasswordPrefixInput}202095", "level": 0, "email": "password295@gmail.com"
-                    },
-                    {
-                        "password": "${configTrojanPasswordPrefixInput}202096", "level": 0, "email": "password296@gmail.com"
-                    },
-                    {
-                        "password": "${configTrojanPasswordPrefixInput}202097", "level": 0, "email": "password297@gmail.com"
-                    },
-                    {
-                        "password": "${configTrojanPasswordPrefixInput}202098", "level": 0, "email": "password298@gmail.com"
-                    },
-                    {
-                        "password": "${configTrojanPasswordPrefixInput}202099", "level": 0, "email": "password299@gmail.com"
-                    }
+                    { "password": "${trojanPassword1}", "level": 0, "email": "password111@gmail.com" },
+                    { "password": "${trojanPassword2}", "level": 0, "email": "password112@gmail.com" },
+                    { "password": "${trojanPassword3}", "level": 0, "email": "password113@gmail.com" },
+                    { "password": "${trojanPassword4}", "level": 0, "email": "password114@gmail.com" },
+                    { "password": "${trojanPassword5}", "level": 0, "email": "password115@gmail.com" },
+                    { "password": "${trojanPassword6}", "level": 0, "email": "password116@gmail.com" },
+                    { "password": "${trojanPassword7}", "level": 0, "email": "password117@gmail.com" },
+                    { "password": "${trojanPassword8}", "level": 0, "email": "password118@gmail.com" },
+                    { "password": "${trojanPassword9}", "level": 0, "email": "password119@gmail.com" },
+                    { "password": "${trojanPassword10}", "level": 0, "email": "password120@gmail.com" },
+                    { "password": "${configTrojanPasswordPrefixInput}202200", "level": 0, "email": "password200@gmail.com" },
+                    { "password": "${configTrojanPasswordPrefixInput}202201", "level": 0, "email": "password201@gmail.com" },
+                    { "password": "${configTrojanPasswordPrefixInput}202202", "level": 0, "email": "password202@gmail.com" },
+                    { "password": "${configTrojanPasswordPrefixInput}202203", "level": 0, "email": "password203@gmail.com" },
+                    { "password": "${configTrojanPasswordPrefixInput}202204", "level": 0, "email": "password204@gmail.com" },
+                    { "password": "${configTrojanPasswordPrefixInput}202205", "level": 0, "email": "password205@gmail.com" },
+                    { "password": "${configTrojanPasswordPrefixInput}202206", "level": 0, "email": "password206@gmail.com" },
+                    { "password": "${configTrojanPasswordPrefixInput}202207", "level": 0, "email": "password207@gmail.com" },
+                    { "password": "${configTrojanPasswordPrefixInput}202208", "level": 0, "email": "password208@gmail.com" },
+                    { "password": "${configTrojanPasswordPrefixInput}202209", "level": 0, "email": "password209@gmail.com" },
+                    { "password": "${configTrojanPasswordPrefixInput}202210", "level": 0, "email": "password210@gmail.com" },
+                    { "password": "${configTrojanPasswordPrefixInput}202211", "level": 0, "email": "password211@gmail.com" },
+                    { "password": "${configTrojanPasswordPrefixInput}202212", "level": 0, "email": "password212@gmail.com" },
+                    { "password": "${configTrojanPasswordPrefixInput}202213", "level": 0, "email": "password213@gmail.com" },
+                    { "password": "${configTrojanPasswordPrefixInput}202214", "level": 0, "email": "password214@gmail.com" },
+                    { "password": "${configTrojanPasswordPrefixInput}202215", "level": 0, "email": "password215@gmail.com" },
+                    { "password": "${configTrojanPasswordPrefixInput}202216", "level": 0, "email": "password216@gmail.com" },
+                    { "password": "${configTrojanPasswordPrefixInput}202217", "level": 0, "email": "password217@gmail.com" },
+                    { "password": "${configTrojanPasswordPrefixInput}202218", "level": 0, "email": "password218@gmail.com" },
+                    { "password": "${configTrojanPasswordPrefixInput}202219", "level": 0, "email": "password219@gmail.com" },
+                    { "password": "${configTrojanPasswordPrefixInput}202220", "level": 0, "email": "password220@gmail.com" },
+                    { "password": "${configTrojanPasswordPrefixInput}202221", "level": 0, "email": "password221@gmail.com" },
+                    { "password": "${configTrojanPasswordPrefixInput}202222", "level": 0, "email": "password222@gmail.com" },
+                    { "password": "${configTrojanPasswordPrefixInput}202223", "level": 0, "email": "password223@gmail.com" },
+                    { "password": "${configTrojanPasswordPrefixInput}202224", "level": 0, "email": "password224@gmail.com" },
+                    { "password": "${configTrojanPasswordPrefixInput}202225", "level": 0, "email": "password225@gmail.com" },
+                    { "password": "${configTrojanPasswordPrefixInput}202226", "level": 0, "email": "password226@gmail.com" },
+                    { "password": "${configTrojanPasswordPrefixInput}202227", "level": 0, "email": "password227@gmail.com" },
+                    { "password": "${configTrojanPasswordPrefixInput}202228", "level": 0, "email": "password228@gmail.com" },
+                    { "password": "${configTrojanPasswordPrefixInput}202229", "level": 0, "email": "password229@gmail.com" },
+                    { "password": "${configTrojanPasswordPrefixInput}202230", "level": 0, "email": "password230@gmail.com" },
+                    { "password": "${configTrojanPasswordPrefixInput}202231", "level": 0, "email": "password231@gmail.com" },
+                    { "password": "${configTrojanPasswordPrefixInput}202232", "level": 0, "email": "password232@gmail.com" },
+                    { "password": "${configTrojanPasswordPrefixInput}202233", "level": 0, "email": "password233@gmail.com" },
+                    { "password": "${configTrojanPasswordPrefixInput}202234", "level": 0, "email": "password234@gmail.com" },
+                    { "password": "${configTrojanPasswordPrefixInput}202235", "level": 0, "email": "password235@gmail.com" },
+                    { "password": "${configTrojanPasswordPrefixInput}202236", "level": 0, "email": "password236@gmail.com" },
+                    { "password": "${configTrojanPasswordPrefixInput}202237", "level": 0, "email": "password237@gmail.com" },
+                    { "password": "${configTrojanPasswordPrefixInput}202238", "level": 0, "email": "password238@gmail.com" },
+                    { "password": "${configTrojanPasswordPrefixInput}202239", "level": 0, "email": "password239@gmail.com" },
+                    { "password": "${configTrojanPasswordPrefixInput}202240", "level": 0, "email": "password240@gmail.com" },
+                    { "password": "${configTrojanPasswordPrefixInput}202241", "level": 0, "email": "password241@gmail.com" },
+                    { "password": "${configTrojanPasswordPrefixInput}202242", "level": 0, "email": "password242@gmail.com" },
+                    { "password": "${configTrojanPasswordPrefixInput}202243", "level": 0, "email": "password243@gmail.com" },
+                    { "password": "${configTrojanPasswordPrefixInput}202244", "level": 0, "email": "password244@gmail.com" },
+                    { "password": "${configTrojanPasswordPrefixInput}202245", "level": 0, "email": "password245@gmail.com" },
+                    { "password": "${configTrojanPasswordPrefixInput}202246", "level": 0, "email": "password246@gmail.com" },
+                    { "password": "${configTrojanPasswordPrefixInput}202247", "level": 0, "email": "password247@gmail.com" },
+                    { "password": "${configTrojanPasswordPrefixInput}202248", "level": 0, "email": "password248@gmail.com" },
+                    { "password": "${configTrojanPasswordPrefixInput}202249", "level": 0, "email": "password249@gmail.com" },
+                    { "password": "${configTrojanPasswordPrefixInput}202250", "level": 0, "email": "password250@gmail.com" },
+                    { "password": "${configTrojanPasswordPrefixInput}202251", "level": 0, "email": "password251@gmail.com" },
+                    { "password": "${configTrojanPasswordPrefixInput}202252", "level": 0, "email": "password252@gmail.com" },
+                    { "password": "${configTrojanPasswordPrefixInput}202253", "level": 0, "email": "password253@gmail.com" },
+                    { "password": "${configTrojanPasswordPrefixInput}202254", "level": 0, "email": "password254@gmail.com" },
+                    { "password": "${configTrojanPasswordPrefixInput}202255", "level": 0, "email": "password255@gmail.com" },
+                    { "password": "${configTrojanPasswordPrefixInput}202256", "level": 0, "email": "password256@gmail.com" },
+                    { "password": "${configTrojanPasswordPrefixInput}202257", "level": 0, "email": "password257@gmail.com" },
+                    { "password": "${configTrojanPasswordPrefixInput}202258", "level": 0, "email": "password258@gmail.com" },
+                    { "password": "${configTrojanPasswordPrefixInput}202259", "level": 0, "email": "password259@gmail.com" },
+                    { "password": "${configTrojanPasswordPrefixInput}202260", "level": 0, "email": "password260@gmail.com" },
+                    { "password": "${configTrojanPasswordPrefixInput}202261", "level": 0, "email": "password261@gmail.com" },
+                    { "password": "${configTrojanPasswordPrefixInput}202262", "level": 0, "email": "password262@gmail.com" },
+                    { "password": "${configTrojanPasswordPrefixInput}202263", "level": 0, "email": "password263@gmail.com" },
+                    { "password": "${configTrojanPasswordPrefixInput}202264", "level": 0, "email": "password264@gmail.com" },
+                    { "password": "${configTrojanPasswordPrefixInput}202265", "level": 0, "email": "password265@gmail.com" },
+                    { "password": "${configTrojanPasswordPrefixInput}202266", "level": 0, "email": "password266@gmail.com" },
+                    { "password": "${configTrojanPasswordPrefixInput}202267", "level": 0, "email": "password267@gmail.com" },
+                    { "password": "${configTrojanPasswordPrefixInput}202268", "level": 0, "email": "password268@gmail.com" },
+                    { "password": "${configTrojanPasswordPrefixInput}202269", "level": 0, "email": "password269@gmail.com" },
+                    { "password": "${configTrojanPasswordPrefixInput}202270", "level": 0, "email": "password270@gmail.com" },
+                    { "password": "${configTrojanPasswordPrefixInput}202271", "level": 0, "email": "password271@gmail.com" },
+                    { "password": "${configTrojanPasswordPrefixInput}202272", "level": 0, "email": "password272@gmail.com" },
+                    { "password": "${configTrojanPasswordPrefixInput}202273", "level": 0, "email": "password273@gmail.com" },
+                    { "password": "${configTrojanPasswordPrefixInput}202274", "level": 0, "email": "password274@gmail.com" },
+                    { "password": "${configTrojanPasswordPrefixInput}202275", "level": 0, "email": "password275@gmail.com" },
+                    { "password": "${configTrojanPasswordPrefixInput}202276", "level": 0, "email": "password276@gmail.com" },
+                    { "password": "${configTrojanPasswordPrefixInput}202277", "level": 0, "email": "password277@gmail.com" },
+                    { "password": "${configTrojanPasswordPrefixInput}202278", "level": 0, "email": "password278@gmail.com" },
+                    { "password": "${configTrojanPasswordPrefixInput}202279", "level": 0, "email": "password279@gmail.com" },
+                    { "password": "${configTrojanPasswordPrefixInput}202280", "level": 0, "email": "password280@gmail.com" },
+                    { "password": "${configTrojanPasswordPrefixInput}202281", "level": 0, "email": "password281@gmail.com" },
+                    { "password": "${configTrojanPasswordPrefixInput}202282", "level": 0, "email": "password282@gmail.com" },
+                    { "password": "${configTrojanPasswordPrefixInput}202283", "level": 0, "email": "password283@gmail.com" },
+                    { "password": "${configTrojanPasswordPrefixInput}202284", "level": 0, "email": "password284@gmail.com" },
+                    { "password": "${configTrojanPasswordPrefixInput}202285", "level": 0, "email": "password285@gmail.com" },
+                    { "password": "${configTrojanPasswordPrefixInput}202286", "level": 0, "email": "password286@gmail.com" },
+                    { "password": "${configTrojanPasswordPrefixInput}202287", "level": 0, "email": "password287@gmail.com" },
+                    { "password": "${configTrojanPasswordPrefixInput}202288", "level": 0, "email": "password288@gmail.com" },
+                    { "password": "${configTrojanPasswordPrefixInput}202289", "level": 0, "email": "password289@gmail.com" },
+                    { "password": "${configTrojanPasswordPrefixInput}202290", "level": 0, "email": "password290@gmail.com" },
+                    { "password": "${configTrojanPasswordPrefixInput}202291", "level": 0, "email": "password291@gmail.com" },
+                    { "password": "${configTrojanPasswordPrefixInput}202292", "level": 0, "email": "password292@gmail.com" },
+                    { "password": "${configTrojanPasswordPrefixInput}202293", "level": 0, "email": "password293@gmail.com" },
+                    { "password": "${configTrojanPasswordPrefixInput}202294", "level": 0, "email": "password294@gmail.com" },
+                    { "password": "${configTrojanPasswordPrefixInput}202295", "level": 0, "email": "password295@gmail.com" },
+                    { "password": "${configTrojanPasswordPrefixInput}202296", "level": 0, "email": "password296@gmail.com" },
+                    { "password": "${configTrojanPasswordPrefixInput}202297", "level": 0, "email": "password297@gmail.com" },
+                    { "password": "${configTrojanPasswordPrefixInput}202298", "level": 0, "email": "password298@gmail.com" },
+                    { "password": "${configTrojanPasswordPrefixInput}202299", "level": 0, "email": "password299@gmail.com" }
 
 EOM
     fi
 
     if [[ "${configV2rayIsTlsShowInfo}" == "xtls"  ]]; then
     read -r -d '' v2rayConfigUserpasswordInput << EOM
-                    {
-                        "id": "${v2rayPassword1}", "flow": "xtls-rprx-direct", "level": 0, "email": "password11@gmail.com"
-                    },
-                    {
-                        "id": "${v2rayPassword2}", "flow": "xtls-rprx-direct", "level": 0, "email": "password12@gmail.com"
-                    },
-                    {
-                        "id": "${v2rayPassword3}", "flow": "xtls-rprx-direct", "level": 0, "email": "password13@gmail.com"
-                    },
-                    {
-                        "id": "${v2rayPassword4}", "flow": "xtls-rprx-direct", "level": 0, "email": "password14@gmail.com"
-                    },
-                    {
-                        "id": "${v2rayPassword5}", "flow": "xtls-rprx-direct", "level": 0, "email": "password15@gmail.com"
-                    },
-                    {
-                        "id": "${v2rayPassword6}", "flow": "xtls-rprx-direct", "level": 0, "email": "password16@gmail.com"
-                    },
-                    {
-                        "id": "${v2rayPassword7}", "flow": "xtls-rprx-direct", "level": 0, "email": "password17@gmail.com"
-                    },
-                    {
-                        "id": "${v2rayPassword8}", "flow": "xtls-rprx-direct", "level": 0, "email": "password18@gmail.com"
-                    },
-                    {
-                        "id": "${v2rayPassword9}", "flow": "xtls-rprx-direct", "level": 0, "email": "password19@gmail.com"
-                    },
-                    {
-                        "id": "${v2rayPassword10}", "flow": "xtls-rprx-direct", "level": 0, "email": "password20@gmail.com"
-                    }
+                    { "id": "${v2rayPassword1}", "flow": "xtls-rprx-direct", "level": 0, "email": "password11@gmail.com" },
+                    { "id": "${v2rayPassword2}", "flow": "xtls-rprx-direct", "level": 0, "email": "password12@gmail.com" },
+                    { "id": "${v2rayPassword3}", "flow": "xtls-rprx-direct", "level": 0, "email": "password13@gmail.com" },
+                    { "id": "${v2rayPassword4}", "flow": "xtls-rprx-direct", "level": 0, "email": "password14@gmail.com" },
+                    { "id": "${v2rayPassword5}", "flow": "xtls-rprx-direct", "level": 0, "email": "password15@gmail.com" },
+                    { "id": "${v2rayPassword6}", "flow": "xtls-rprx-direct", "level": 0, "email": "password16@gmail.com" },
+                    { "id": "${v2rayPassword7}", "flow": "xtls-rprx-direct", "level": 0, "email": "password17@gmail.com" },
+                    { "id": "${v2rayPassword8}", "flow": "xtls-rprx-direct", "level": 0, "email": "password18@gmail.com" },
+                    { "id": "${v2rayPassword9}", "flow": "xtls-rprx-direct", "level": 0, "email": "password19@gmail.com" },
+                    { "id": "${v2rayPassword10}", "flow": "xtls-rprx-direct", "level": 0, "email": "password20@gmail.com" }
+
 EOM
 
     else
     read -r -d '' v2rayConfigUserpasswordInput << EOM
-                    {
-                        "id": "${v2rayPassword1}", "level": 0, "email": "password11@gmail.com"
-                    },
-                    {
-                        "id": "${v2rayPassword2}", "level": 0, "email": "password12@gmail.com"
-                    },
-                    {
-                        "id": "${v2rayPassword3}", "level": 0, "email": "password13@gmail.com"
-                    },
-                    {
-                        "id": "${v2rayPassword4}", "level": 0, "email": "password14@gmail.com"
-                    },
-                    {
-                        "id": "${v2rayPassword5}", "level": 0, "email": "password15@gmail.com"
-                    },
-                    {
-                        "id": "${v2rayPassword6}", "level": 0, "email": "password16@gmail.com"
-                    },
-                    {
-                        "id": "${v2rayPassword7}", "level": 0, "email": "password17@gmail.com"
-                    },
-                    {
-                        "id": "${v2rayPassword8}", "level": 0, "email": "password18@gmail.com"
-                    },
-                    {
-                        "id": "${v2rayPassword9}", "level": 0, "email": "password19@gmail.com"
-                    },
-                    {
-                        "id": "${v2rayPassword10}", "level": 0, "email": "password20@gmail.com"
-                    }
+                    { "id": "${v2rayPassword1}", "level": 0, "email": "password11@gmail.com" },
+                    { "id": "${v2rayPassword2}", "level": 0, "email": "password12@gmail.com" },
+                    { "id": "${v2rayPassword3}", "level": 0, "email": "password13@gmail.com" },
+                    { "id": "${v2rayPassword4}", "level": 0, "email": "password14@gmail.com" },
+                    { "id": "${v2rayPassword5}", "level": 0, "email": "password15@gmail.com" },
+                    { "id": "${v2rayPassword6}", "level": 0, "email": "password16@gmail.com" },
+                    { "id": "${v2rayPassword7}", "level": 0, "email": "password17@gmail.com" },
+                    { "id": "${v2rayPassword8}", "level": 0, "email": "password18@gmail.com" },
+                    { "id": "${v2rayPassword9}", "level": 0, "email": "password19@gmail.com" },
+                    { "id": "${v2rayPassword10}", "level": 0, "email": "password20@gmail.com" }
+
 EOM
 
     fi
@@ -5044,6 +5497,7 @@ EOM
                 "network": "ws",
                 "security": "none",
                 "wsSettings": {
+                    "acceptProxyProtocol": true,
                     "path": "/${configV2rayWebSocketPath}" 
                 }
             }
@@ -5449,8 +5903,10 @@ EOF
 
 
 
-
-
+    systemmdServiceFixV2ray5="run"
+    if [[ $versionV2ray == "4.45.2" ]]; then
+        systemmdServiceFixV2ray5=""
+    fi
 
 
 
@@ -5472,7 +5928,7 @@ User=root
 #User=nobody
 #CapabilityBoundingSet=CAP_NET_ADMIN CAP_NET_BIND_SERVICE
 NoNewPrivileges=true
-ExecStart=${configV2rayPath}/v2ray -config ${configV2rayPath}/config.json
+ExecStart=${configV2rayPath}/v2ray ${systemmdServiceFixV2ray5} -config ${configV2rayPath}/config.json
 Restart=on-failure
 RestartPreventExitStatus=23
 
@@ -5483,7 +5939,7 @@ EOF
         cat > ${osSystemMdPath}${promptInfoXrayName}${promptInfoXrayNameServiceName}.service <<-EOF
 [Unit]
 Description=Xray
-Documentation=https://www.v2fly.org/
+Documentation=https://xtls.github.io/
 After=network.target nss-lookup.target
 
 [Service]
@@ -5629,7 +6085,7 @@ EOF
     额外id/AlterID: 0,  // AlterID, Vmess 请填0, 如果是Vless协议则不需要该项
     加密方式: aes-128-gcm,  // 如果是Vless协议则为none
     传输协议: gRPC,
-    gRPC serviceName: ${configV2rayGRPCServiceName},
+    gRPC serviceName: ${configV2rayGRPCServiceName},    // serviceName 不能有/
     底层传输协议: ${configV2rayIsTlsShowInfo},
     别名:自己起个任意名称
 }
@@ -5674,7 +6130,7 @@ ${v2rayVlessLinkQR1}
     额外id/AlterID: 0,  // AlterID, Vmess 请填0, 如果是Vless协议则不需要该项
     加密方式: aes-128-gcm,  // 如果是Vless协议则为none
     传输协议: gRPC,
-    gRPC serviceName: ${configV2rayGRPCServiceName},
+    gRPC serviceName: ${configV2rayGRPCServiceName},    // serviceName 不能有/
     底层传输协议: ${configV2rayIsTlsShowInfo},
     别名:自己起个任意名称
 }
@@ -5721,7 +6177,7 @@ EOF
 
         cat > ${configV2rayPath}/clientConfig.json <<-EOF
 
-VLess运行在443端口 (VLess-TCP-TLS) + (VMess-TCP-TLS) + (VMess-WS-TLS)  支持CDN
+VLess运行在${configV2rayPortShowInfo}端口 (VLess-TCP-TLS) + (VMess-TCP-TLS) + (VMess-WS-TLS)  支持CDN
 
 =========== ${promptInfoXrayInstall}客户端 VLess-TCP-TLS 配置参数 =============
 {
@@ -5730,6 +6186,7 @@ VLess运行在443端口 (VLess-TCP-TLS) + (VMess-TCP-TLS) + (VMess-WS-TLS)  支�
     端口: ${configV2rayPort},
     uuid: ${v2rayPassword1},
     额外id: 0,  // AlterID 如果是Vless协议则不需要该项
+    流控flow: ${configV2rayVlessXtlsFlowShowInfo},
     加密方式: none,  // 如果是Vless协议则为none
     传输协议: tcp ,
     websocket路径:无,
@@ -5751,15 +6208,13 @@ ${v2rayVlessLinkQR1}
     加密方式: auto,  // 如果是Vless协议则为none
     传输协议: websocket,
     websocket路径:/${configV2rayWebSocketPath},
-    底层传输:tls,
+    底层传输协议:tls,
     别名:自己起个任意名称
 }
 
 导入链接 Vmess Base64 格式:
 ${v2rayVmessLinkQR1}
 
-导入链接新版:
-vmess://${v2rayPassword1UrlEncoded}@${configSSLDomain}:${configV2rayPort}?encryption=auto&security=tls&type=ws&host=${configSSLDomain}&path=%2f${configV2rayWebSocketPath}#${configSSLDomain}+ws_protocol
 
 
 =========== ${promptInfoXrayInstall}客户端 VMess-TCP-TLS 配置参数 支持CDN =============
@@ -5771,23 +6226,22 @@ vmess://${v2rayPassword1UrlEncoded}@${configSSLDomain}:${configV2rayPort}?encryp
     额外id: 0,  // AlterID 如果是Vless协议则不需要该项
     加密方式: auto,  // 如果是Vless协议则为none
     传输协议: tcp,
+    伪装类型: http,
     路径:/tcp${configV2rayWebSocketPath},
-    底层传输:tls,
+    底层传输协议:tls,
     别名:自己起个任意名称
 }
 
 导入链接 Vmess Base64 格式:
 ${v2rayVmessLinkQR2}
 
-导入链接新版:
-vmess://${v2rayPassword1UrlEncoded}@${configSSLDomain}:${configV2rayPort}?encryption=auto&security=tls&type=tcp&host=${configSSLDomain}&path=%2ftcp${configV2rayWebSocketPath}#${configSSLDomain}+tcp_protocol
 
 EOF
 
     elif [[ "$configV2rayWorkingMode" == "vlessgRPC" ]]; then
 
     cat > ${configV2rayPath}/clientConfig.json <<-EOF
- VLess运行在443端口 (VLess-gRPC-TLS) 支持CDN
+ VLess运行在${configV2rayPortShowInfo}端口 (VLess-gRPC-TLS) 支持CDN
 
 =========== ${promptInfoXrayInstall}客户端 VLess-gRPC-TLS 配置参数 支持CDN =============
 {
@@ -5796,11 +6250,11 @@ EOF
     端口: ${configV2rayPort},
     uuid: ${v2rayPassword1},
     额外id: 0,  // AlterID 如果是Vless协议则不需要该项
-    流控flow:  空,
+    流控flow: ${configV2rayVlessXtlsFlowShowInfo},
     加密方式: none,  
     传输协议: gRPC,
     gRPC serviceName: ${configV2rayGRPCServiceName},
-    底层传输协议: tls,
+    底层传输协议: ${configV2rayIsTlsShowInfo},
     别名:自己起个任意名称
 }
 
@@ -5812,7 +6266,7 @@ EOF
     elif [[ "$configV2rayWorkingMode" == "vlessTCPWS" ]]; then
 
     cat > ${configV2rayPath}/clientConfig.json <<-EOF
-VLess运行在443端口 (VLess-TCP-TLS) + (VLess-WS-TLS) 支持CDN
+VLess运行在${configV2rayPortShowInfo}端口 (VLess-TCP-TLS) + (VLess-WS-TLS) 支持CDN
 
 =========== ${promptInfoXrayInstall}客户端 VLess-TCP-TLS 配置参数 =============
 {
@@ -5821,7 +6275,7 @@ VLess运行在443端口 (VLess-TCP-TLS) + (VLess-WS-TLS) 支持CDN
     端口: ${configV2rayPort},
     uuid: ${v2rayPassword1},
     额外id: 0,  // AlterID 如果是Vless协议则不需要该项
-    流控flow: 空
+    流控flow: ${configV2rayVlessXtlsFlowShowInfo},
     加密方式: none, 
     传输协议: tcp ,
     websocket路径:无,
@@ -5840,29 +6294,29 @@ ${v2rayVlessLinkQR1}
     端口: ${configV2rayPort},
     uuid: ${v2rayPassword1},
     额外id: 0,  // AlterID 如果是Vless协议则不需要该项
-    流控flow: 空,
+    流控flow: ${configV2rayVlessXtlsFlowShowInfo},
     加密方式: none,  
     传输协议: websocket,
     websocket路径:/${configV2rayWebSocketPath},
-    底层传输:tls,     
+    底层传输协议:tls,     
     别名:自己起个任意名称
 }
 
 导入链接 Vless 格式:
-vless://${v2rayPassword1UrlEncoded}@${configSSLDomain}:${configV2rayPort}?encryption=none&security=tls&type=ws&host=${configSSLDomain}&path=%2f${configV2rayWebSocketPath}#${configSSLDomain}+ws_protocol
+vless://${v2rayPassword1UrlEncoded}@${configSSLDomain}:${configV2rayPortShowInfo}?encryption=none&security=tls&type=ws&host=${configSSLDomain}&path=%2f${configV2rayWebSocketPath}#${configSSLDomain}+WebSocket_tls
 
 EOF
 
     elif [[ "$configV2rayWorkingMode" == "vlessTCPWSgRPC" || "$configV2rayWorkingMode" == "sni" ]]; then
 
     cat > ${configV2rayPath}/clientConfig.json <<-EOF
-VLess运行在443端口 (VLess-TCP-TLS) + (VLess-WS-TLS) + (VLess-gRPC-TLS)支持CDN
+VLess运行在${configV2rayPortShowInfo}端口 (VLess-TCP-TLS) + (VLess-WS-TLS) + (VLess-gRPC-TLS)支持CDN
 
 =========== ${promptInfoXrayInstall}客户端 VLess-TCP-TLS 配置参数 =============
 {
     协议: VLess,
     地址: ${configSSLDomain},
-    端口: ${configV2rayPort},
+    端口: ${configV2rayPortShowInfo},
     uuid: ${v2rayPassword1},
     额外id: 0,  // AlterID 如果是Vless协议则不需要该项
     流控flow: 空
@@ -5881,43 +6335,45 @@ ${v2rayVlessLinkQR1}
 {
     协议: VLess,
     地址: ${configSSLDomain},
-    端口: ${configV2rayPort},
+    端口: ${configV2rayPortShowInfo},
     uuid: ${v2rayPassword1},
     额外id: 0,  // AlterID 如果是Vless协议则不需要该项
-    流控flow: 空,
+    流控flow: ${configV2rayVlessXtlsFlowShowInfo},
     加密方式: none,  
     传输协议: websocket,
     websocket路径:/${configV2rayWebSocketPath},
-    底层传输:tls,     
+    底层传输协议:tls,     
     别名:自己起个任意名称
 }
 
 导入链接 Vless 格式:
-vless://${v2rayPassword1UrlEncoded}@${configSSLDomain}:${configV2rayPort}?encryption=none&security=tls&type=ws&host=${configSSLDomain}&path=%2f${configV2rayWebSocketPath}#${configSSLDomain}+ws_protocol
+vless://${v2rayPassword1UrlEncoded}@${configSSLDomain}:${configV2rayPortShowInfo}?encryption=none&security=tls&type=ws&host=${configSSLDomain}&path=%2f${configV2rayWebSocketPath}#${configSSLDomain}+WebSocket_tls
 
 
 =========== ${promptInfoXrayInstall}客户端 VLess-gRPC-TLS 配置参数 支持CDN =============
 {
     协议: VLess,
     地址: ${configSSLDomain},
-    端口: ${configV2rayPort},
+    端口: ${configV2rayPortShowInfo},
     uuid: ${v2rayPassword1},
     额外id: 0,  // AlterID 如果是Vless协议则不需要该项
     流控flow:  空,
     加密方式: none,  
     传输协议: gRPC,
     gRPC serviceName: ${configV2rayGRPCServiceName},
-    底层传输:tls,     
+    底层传输协议:tls,     
     别名:自己起个任意名称
 }
 
 导入链接 Vless 格式:
-vless://${v2rayPassword1UrlEncoded}@${configSSLDomain}:${configV2rayPort}?encryption=none&security=tls&type=grpc&serviceName=${configV2rayGRPCServiceName}&host=${configSSLDomain}#${configSSLDomain}+gRPC_protocol
+vless://${v2rayPassword1UrlEncoded}@${configSSLDomain}:${configV2rayPortShowInfo}?encryption=none&security=tls&type=grpc&serviceName=${configV2rayGRPCServiceName}&host=${configSSLDomain}#${configSSLDomain}+gRPC_tls
 
 EOF
 
     elif [[ "$configV2rayWorkingMode" == "vlessTCPWSTrojan" ]]; then
     cat > ${configV2rayPath}/clientConfig.json <<-EOF
+VLess运行在${configV2rayPortShowInfo}端口 (VLess-TCP-TLS) + (VLess-WS-TLS) + (Trojan)支持CDN
+
 =========== ${promptInfoXrayInstall}客户端 VLess-TCP-TLS 配置参数 =============
 {
     协议: VLess,
@@ -5944,16 +6400,16 @@ ${v2rayVlessLinkQR1}
     端口: ${configV2rayPort},
     uuid: ${v2rayPassword1},
     额外id: 0,  // AlterID 如果是Vless协议则不需要该项
-    流控flow: 空, 
+    流控flow: ${configV2rayVlessXtlsFlowShowInfo}, 
     加密方式: none,  
     传输协议: websocket,
     websocket路径:/${configV2rayWebSocketPath},
-    底层传输:tls,     
+    底层传输协议:tls,     
     别名:自己起个任意名称
 }
 
 导入链接:
-vless://${v2rayPassword1UrlEncoded}@${configSSLDomain}:${configV2rayPort}?encryption=none&security=tls&type=ws&host=${configSSLDomain}&path=%2f${configV2rayWebSocketPath}#${configSSLDomain}+ws_protocol
+vless://${v2rayPassword1UrlEncoded}@${configSSLDomain}:${configV2rayPort}?encryption=none&security=tls&type=ws&host=${configSSLDomain}&path=%2f${configV2rayWebSocketPath}#${configSSLDomain}+WebSocket_tls
 
 
 =========== Trojan${promptInfoTrojanName}服务器地址: ${configSSLDomain}  端口: $configV2rayPort
@@ -5968,8 +6424,8 @@ vless://${v2rayPassword1UrlEncoded}@${configSSLDomain}:${configV2rayPort}?encryp
 密码8: ${trojanPassword8}
 密码9: ${trojanPassword9}
 密码10: ${trojanPassword10}
-您指定前缀的密码共20个: 从 ${configTrojanPasswordPrefixInput}202001 到 ${configTrojanPasswordPrefixInput}202020 都可以使用
-例如: 密码:${configTrojanPasswordPrefixInput}202002 或 密码:${configTrojanPasswordPrefixInput}202019 都可以使用
+您指定前缀的密码共10个: 从 ${configTrojanPasswordPrefixInput}202201 到 ${configTrojanPasswordPrefixInput}202210 都可以使用
+例如: 密码:${configTrojanPasswordPrefixInput}202202 或 密码:${configTrojanPasswordPrefixInput}202209 都可以使用
 
 小火箭链接:
 trojan://${trojanPassword1}@${configSSLDomain}:${configV2rayPort}?peer=${configSSLDomain}&sni=${configSSLDomain}#${configSSLDomain}_trojan
@@ -6007,16 +6463,16 @@ ${v2rayVlessLinkQR1}
     端口: ${configV2rayPort},
     uuid: ${v2rayPassword1},
     额外id: 0,  // AlterID 如果是Vless协议则不需要该项
-    流控flow: 空, 
+    流控flow: ${configV2rayVlessXtlsFlowShowInfo}, 
     加密方式: none,  
     传输协议: websocket,
     websocket路径:/${configV2rayWebSocketPath},
-    底层传输:tls,     
+    底层传输协议:tls,     
     别名:自己起个任意名称
 }
 
 导入链接:
-vless://${v2rayPassword1UrlEncoded}@${configSSLDomain}:${configV2rayPort}?encryption=none&security=tls&type=ws&host=${configSSLDomain}&path=%2f${configV2rayWebSocketPath}#${configSSLDomain}+ws_protocol
+vless://${v2rayPassword1UrlEncoded}@${configSSLDomain}:${configV2rayPort}?encryption=none&security=tls&type=ws&host=${configSSLDomain}&path=%2f${configV2rayWebSocketPath}#${configSSLDomain}+WebSocket_tls
 
 
 =========== Trojan${promptInfoTrojanName}服务器地址: ${configSSLDomain}  端口: $configV2rayTrojanPort
@@ -6031,8 +6487,8 @@ vless://${v2rayPassword1UrlEncoded}@${configSSLDomain}:${configV2rayPort}?encryp
 密码8: ${trojanPassword8}
 密码9: ${trojanPassword9}
 密码10: ${trojanPassword10}
-您指定前缀的密码共20个: 从 ${configTrojanPasswordPrefixInput}202001 到 ${configTrojanPasswordPrefixInput}202020 都可以使用
-例如: 密码:${configTrojanPasswordPrefixInput}202002 或 密码:${configTrojanPasswordPrefixInput}202019 都可以使用
+您指定前缀的密码共10个: 从 ${configTrojanPasswordPrefixInput}202201 到 ${configTrojanPasswordPrefixInput}202210 都可以使用
+例如: 密码:${configTrojanPasswordPrefixInput}202202 或 密码:${configTrojanPasswordPrefixInput}202209 都可以使用
 
 小火箭链接:
 trojan://${trojanPassword1}@${configSSLDomain}:${configV2rayTrojanPort}?peer=${configSSLDomain}&sni=${configSSLDomain}#${configSSLDomain}_trojan
@@ -6048,6 +6504,7 @@ EOF
     # 设置 cron 定时任务
     # https://stackoverflow.com/questions/610839/how-can-i-programmatically-create-a-new-cron-job
 
+    (crontab -l ; echo "10 4 * * 0,1,2,3,4,5,6 rm -f /root/v2ray-*") | sort - | uniq - | crontab -
     (crontab -l ; echo "20 4 * * 0,1,2,3,4,5,6 systemctl restart ${promptInfoXrayName}${promptInfoXrayNameServiceName}.service") | sort - | uniq - | crontab -
 
 
@@ -6136,30 +6593,36 @@ EOF
 function removeV2ray(){
 
     echo
-    read -p "是否确认卸载 V2ray 或 Xray? 直接回车默认卸载, 请输入[Y/n]:" isRemoveV2rayServerInput
+    read -r -p "是否确认卸载 V2ray 或 Xray? 直接回车默认卸载, 请输入[Y/n]:" isRemoveV2rayServerInput
     isRemoveV2rayServerInput=${isRemoveV2rayServerInput:-Y}
 
     if [[ "${isRemoveV2rayServerInput}" == [Yy] ]]; then
 
-
         if [[ -f "${configV2rayPath}/xray" || -f "${configV2rayPath}/v2ray" ]]; then
+
+            tempIsXrayService=$(ls ${osSystemMdPath} | grep v2ray- )
 
             if [ -f "${configV2rayPath}/xray" ]; then
                 promptInfoXrayName="xray"
                 isXray="yes"
+                tempIsXrayService=$(ls ${osSystemMdPath} | grep xray- )
             fi
 
-            if [ -f "${osSystemMdPath}${promptInfoXrayName}-jin.service" ]; then
-                promptInfoXrayNameServiceName="-jin"
-            else
+            if [[ -z "${tempIsXrayService}" ]]; then
                 promptInfoXrayNameServiceName=""
+
+            else
+                if [ -f "${osSystemMdPath}${promptInfoXrayName}-jin.service" ]; then
+                    promptInfoXrayNameServiceName="-jin"
+                else
+                    tempFilelist=$(ls /usr/lib/systemd/system | grep ${promptInfoXrayName} | awk -F '-' '{ print $2 }' )
+                    promptInfoXrayNameServiceName="-${tempFilelist%.*}"
+                fi
             fi
 
-            echo
-            green " ================================================== "
-            red " 准备卸载已安装 ${promptInfoXrayName}${promptInfoXrayNameServiceName} "
-            green " ================================================== "
-            echo
+
+            showHeaderRed "准备卸载已安装 ${promptInfoXrayName}${promptInfoXrayNameServiceName} "
+
 
             ${sudoCmd} systemctl stop ${promptInfoXrayName}${promptInfoXrayNameServiceName}.service
             ${sudoCmd} systemctl disable ${promptInfoXrayName}${promptInfoXrayNameServiceName}.service
@@ -6170,15 +6633,14 @@ function removeV2ray(){
             rm -f ${configV2rayAccessLogFilePath}
             rm -f ${configV2rayErrorLogFilePath}
 
+            crontab -l | grep -v "rm" | crontab -
             crontab -l | grep -v "${promptInfoXrayName}${promptInfoXrayNameServiceName}" | crontab -
 
-            echo
-            green " ================================================== "
-            green "  ${promptInfoXrayName}${promptInfoXrayNameServiceName} 卸载完毕 !"
-            green " ================================================== "
+
+            showHeaderGreen " ${promptInfoXrayName}${promptInfoXrayNameServiceName} 卸载完毕 !"
             
         else
-            red " 系统没有安装 ${promptInfoXrayName}${promptInfoXrayNameServiceName}, 退出卸载"
+            showHeaderRed " 系统没有安装 ${promptInfoXrayName}${promptInfoXrayNameServiceName}, 退出卸载"
         fi
         echo
 
@@ -6190,24 +6652,35 @@ function removeV2ray(){
 function upgradeV2ray(){
 
     if [[ -f "${configV2rayPath}/xray" || -f "${configV2rayPath}/v2ray" ]]; then
+
+        tempIsXrayService=$(ls ${osSystemMdPath} | grep v2ray- )
+
         if [ -f "${configV2rayPath}/xray" ]; then
             promptInfoXrayName="xray"
             isXray="yes"
+            tempIsXrayService=$(ls ${osSystemMdPath} | grep xray- )
         fi
 
-        if [ -f "${osSystemMdPath}${promptInfoXrayName}-jin.service " ]; then
-            promptInfoXrayNameServiceName="-jin"
-        else
+        if [[ -z "${tempIsXrayService}" ]]; then
             promptInfoXrayNameServiceName=""
+
+        else
+            if [ -f "${osSystemMdPath}${promptInfoXrayName}-jin.service" ]; then
+                promptInfoXrayNameServiceName="-jin"
+            else
+                tempFilelist=$(ls /usr/lib/systemd/system | grep ${promptInfoXrayName} | awk -F '-' '{ print $2 }' )
+                promptInfoXrayNameServiceName="-${tempFilelist%.*}"
+            fi
         fi
 
+        
         if [ "$isXray" = "no" ] ; then
-            getTrojanAndV2rayVersion "v2ray"
+            getV2rayVersion "v2ray"
             green " =================================================="
             green "       开始升级 V2ray Version: ${versionV2ray} !"
             green " =================================================="
         else
-            getTrojanAndV2rayVersion "xray"
+            getV2rayVersion "xray"
             green " =================================================="
             green "       开始升级 Xray Version: ${versionXray} !"
             green " =================================================="
@@ -6229,6 +6702,18 @@ function upgradeV2ray(){
         mv -f ${configDownloadTempPath}/upgrade/${promptInfoXrayName}/geosite.dat ${configV2rayPath}
 
         ${sudoCmd} chmod +x ${configV2rayPath}/${promptInfoXrayName}
+
+        systemmdServiceFixV2ray5="run"
+        if [[ $versionV2ray == "4.45.2" ]]; then
+            systemmdServiceFixV2ray5=""
+            sed -i 's/run -config/-config/g' ${osSystemMdPath}${promptInfoXrayName}${promptInfoXrayNameServiceName}.service
+        else
+            sed -i 's/run -config/-config/g' ${osSystemMdPath}${promptInfoXrayName}${promptInfoXrayNameServiceName}.service
+            sed -i 's/-config/run -config/g' ${osSystemMdPath}${promptInfoXrayName}${promptInfoXrayNameServiceName}.service
+        fi
+
+        
+        ${sudoCmd} systemctl daemon-reload
         ${sudoCmd} systemctl start ${promptInfoXrayName}${promptInfoXrayNameServiceName}.service
 
 
@@ -6237,7 +6722,6 @@ function upgradeV2ray(){
             green "     升级成功 V2ray Version: ${versionV2ray} !"
             green " ================================================== "
         else
-            getTrojanAndV2rayVersion "xray"
             green " =================================================="
             green "     升级成功 Xray Version: ${versionXray} !"
             green " =================================================="
@@ -6327,7 +6811,7 @@ function installTrojanWeb(){
     read configSSLDomain
     if compareRealIpWithLocalIp "${configSSLDomain}" ; then
 
-        getTrojanAndV2rayVersion "trojan-web"
+        getV2rayVersion "trojan-web"
         green " =================================================="
         green "    开始安装 Trojan-web 可视化管理面板: ${versionTrojanWeb} !"
         green " =================================================="
@@ -6374,7 +6858,7 @@ EOF
         green " nginx 安装成功会显示可视化管理面板网址, 请保存下来. 如果没有显示管理面板网址则表明安装失败. "
         green " =================================================="
 
-        read -p "按回车继续安装. Press enter to continue"
+        read -r -p "按回车继续安装. Press enter to continue"
 
         ${configTrojanWebPath}/trojan-web
 
@@ -6392,7 +6876,7 @@ EOF
 }
 
 function upgradeTrojanWeb(){
-    getTrojanAndV2rayVersion "trojan-web"
+    getV2rayVersion "trojan-web"
     green " =================================================="
     green "    开始升级 Trojan-web 可视化管理面板: ${versionTrojanWeb} !"
     green " =================================================="
@@ -6554,7 +7038,7 @@ function installV2rayUI(){
         green "    开始安装 V2ray-UI 可视化管理面板 !"
         green " =================================================="
 
-        bash <(curl -Ls https://raw.githubusercontent.com/tszho-t/v2-ui/master/v2-ui.sh)
+        bash <(curl -Ls https://raw.githubusercontent.com/tszho-t/v2ui/master/v2-ui.sh)
 
         # wget -O v2_ui_install.sh -N --no-check-certificate "https://raw.githubusercontent.com/sprov065/v2-ui/master/install.sh" && chmod +x v2_ui_install.sh && ./v2_ui_install.sh
         # wget -O v2_ui_install.sh -N --no-check-certificate "https://raw.githubusercontent.com/tszho-t/v2-ui/master/install.sh" && chmod +x v2_ui_install.sh && ./v2_ui_install.sh
@@ -6599,18 +7083,581 @@ function upgradeV2rayUI(){
 
 
 
-function installMosdns(){
 
-    if [ -f "/usr/bin/mosdns" ]; then
-        echo
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+configMosdnsBinPath="/usr/local/bin/mosdns"
+configMosdnsPath="/etc/mosdns"
+isInstallMosdns="true"
+isinstallMosdnsName="mosdns"
+downloadFilenameMosdns="mosdns-linux-amd64.zip"
+downloadFilenameMosdnsCn="mosdns-cn-linux-amd64.zip"
+
+isUseEasyMosdnsConfig="false"
+
+
+function downloadMosdns(){
+
+    rm -rf "${configMosdnsBinPath}"
+    mkdir -p "${configMosdnsBinPath}"
+    cd ${configMosdnsBinPath} || exit
+
+
+
+    
+    if [[ "${isInstallMosdns}" == "true" ]]; then
+        versionMosdns=$(getGithubLatestReleaseVersion "IrineSistiana/mosdns")
+
+        downloadFilenameMosdns="mosdns-linux-amd64.zip"
+
+        # https://github.com/IrineSistiana/mosdns/releases/download/v3.8.0/mosdns-linux-amd64.zip
+        # https://github.com/IrineSistiana/mosdns/releases/download/v3.8.0/mosdns-linux-arm64.zip
+        # https://github.com/IrineSistiana/mosdns/releases/download/v3.8.0/mosdns-linux-arm-7.zip
+        if [[ ${osArchitecture} == "arm" ]] ; then
+            downloadFilenameMosdns="mosdns-linux-arm-7.zip"
+        fi
+        if [[ ${osArchitecture} == "arm64" ]] ; then
+            downloadFilenameMosdns="mosdns-linux-arm64.zip"
+        fi
+        
+        downloadAndUnzip "https://github.com/IrineSistiana/mosdns/releases/download/v${versionMosdns}/${downloadFilenameMosdns}" "${configMosdnsBinPath}" "${downloadFilenameMosdns}"
+        ${sudoCmd} chmod +x "${configMosdnsBinPath}/mosdns"
+    
+    else
+        versionMosdnsCn=$(getGithubLatestReleaseVersion "IrineSistiana/mosdns-cn")
+
+        downloadFilenameMosdnsCn="mosdns-cn-linux-amd64.zip"
+
+        # https://github.com/IrineSistiana/mosdns-cn/releases/download/v1.2.3/mosdns-cn-linux-amd64.zip
+        # https://github.com/IrineSistiana/mosdns-cn/releases/download/v1.2.3/mosdns-cn-linux-arm64.zip
+        # https://github.com/IrineSistiana/mosdns-cn/releases/download/v1.2.3/mosdns-cn-linux-arm-7.zip
+        if [[ ${osArchitecture} == "arm" ]] ; then
+            downloadFilenameMosdnsCn="mosdns-cn-linux-arm-7.zip"
+        fi
+        if [[ ${osArchitecture} == "arm64" ]] ; then
+            downloadFilenameMosdnsCn="mosdns-cn-linux-arm64.zip"
+        fi
+
+        downloadAndUnzip "https://github.com/IrineSistiana/mosdns-cn/releases/download/v${versionMosdnsCn}/${downloadFilenameMosdnsCn}" "${configMosdnsBinPath}" "${downloadFilenameMosdnsCn}"
+        ${sudoCmd} chmod +x "${configMosdnsBinPath}/mosdns-cn"
     fi
 
-    green " ================================================== "
-    yellow " "
-    green " ================================================== "
+    if [ ! -f "${configMosdnsBinPath}/${isinstallMosdnsName}" ]; then
+        echo
+        red "下载失败, 请检查网络是否可以正常访问 gitHub.com"
+        red "请检查网络后, 重新运行本脚本!"
+        echo
+        exit 1
+    fi 
+
+
+    rm -rf "${configMosdnsPath}"
+    mkdir -p "${configMosdnsPath}"
+    cd ${configMosdnsPath} || exit
+
+
+
+    if [[ "${isUseEasyMosdnsConfig}" == "false" ]]; then
+
+        echo
+        green " Downloading files: cn.dat, geosite.dat, geoip.dat. "
+        green " 开始下载文件: cn.dat, geosite.dat, geoip.dat  等相关文件"
+        echo
+
+        # versionV2rayRulesDat=$(getGithubLatestReleaseVersion "Loyalsoldier/v2ray-rules-dat")
+        # geositeUrl="https://github.com/Loyalsoldier/v2ray-rules-dat/releases/download/202205162212/geosite.dat"
+        # geoipeUrl="https://github.com/Loyalsoldier/v2ray-rules-dat/releases/download/202205162212/geoip.dat"
+        # cnipUrl="https://github.com/Loyalsoldier/geoip/releases/download/202205120123/cn.dat"
+
+        geositeFilename="geosite.dat"
+        geoipFilename="geoip.dat"
+        cnipFilename="cn.dat"
+
+        geositeUrl="https://github.com/Loyalsoldier/v2ray-rules-dat/releases/latest/download/geosite.dat"
+        geoipeUrl="https://github.com/Loyalsoldier/v2ray-rules-dat/releases/latest/download/geoip.dat"
+        cnipUrl="https://raw.githubusercontent.com/Loyalsoldier/geoip/release/cn.dat"
+
+        wget -O ${configMosdnsPath}/${geositeFilename} ${geositeUrl}
+        wget -O ${configMosdnsPath}/${geoipFilename} ${geoipeUrl}
+        wget -O ${configMosdnsPath}/${cnipFilename} ${cnipUrl}
+    fi
 
 
 }
+
+
+function installMosdns(){
+
+    if [ "${osInfo}" = "OpenWrt" ]; then
+        echo " ================================================== "
+        echo " For Openwrt X86, please use the script below:  "
+        echo " 针对 OpenWrt X86 系统, 请使用如下脚本安装: "
+        echo " wget --no-check-certificate https://raw.githubusercontent.com/jinwyp/one_click_script/master/dsm/openwrt.sh && chmod +x ./openwrt.sh && ./openwrt.sh "
+        echo
+        exit
+    fi
+    
+    # https://askubuntu.com/questions/27213/what-is-the-linux-equivalent-to-windows-program-files
+
+
+    if [ -f "${configMosdnsBinPath}/mosdns" ]; then
+        echo
+        green " =================================================="
+        green " 检测到 mosdns 已安装, 退出安装! "
+        echo
+        exit 1
+    fi
+
+
+    if [ -f "${configMosdnsBinPath}/mosdns-cn" ]; then
+        echo
+        green " =================================================="
+        green " 检测到 mosdns-cn 已安装, 退出安装! "
+        echo
+        exit 1        
+    fi
+
+    echo
+    green " =================================================="
+    green " 请选择安装 Mosdns 还是 Mosdns-cn DNS 服务器:"
+    echo
+    green " 1. Mosdns 配置规则比较复杂"
+    green " 2. Mosdns-cn, 容易配置, 相当于Mosdns配置简化版 推荐使用"
+    echo
+    read -r -p "请选择Mosdns还是Mosdns-cn, 默认直接回车安装Mosdns-cn, 请输入纯数字:" isInstallMosdnsServerInput
+    isInstallMosdnsServerInput=${isInstallMosdnsServerInput:-2}
+    echo
+
+    if [[ "${isInstallMosdnsServerInput}" == "1" ]]; then
+        isInstallMosdns="true"
+        isinstallMosdnsName="mosdns"
+
+        echo
+        green " =================================================="
+        green " 是否使用 easymosdns 的配置, 该配置更复杂 效果更好"
+        green " https://github.com/pmkol/easymosdns"
+        echo
+        read -r -p "是否使用easymosdns, 默认直接回车不使用, 请输入[y/N]:" isUseEasyConfigInput
+        isUseEasyConfigInput=${isUseEasyConfigInput:-n}
+
+        if [[ "$isUseEasyConfigInput" == [Nn] ]]; then
+            isUseEasyMosdnsConfig="false" 
+        else
+            isUseEasyMosdnsConfig="true"
+        fi
+
+    else
+        isInstallMosdns="false"
+        isinstallMosdnsName="mosdns-cn"        
+    fi
+
+
+
+
+    echo
+    green " ================================================== "
+    green "    开始安装 ${isinstallMosdnsName} !"
+    green " ================================================== "
+    echo
+    
+
+
+    echo
+    green " ================================================== "
+    green " 请填写mosdns运行的端口号 默认端口号为5335"
+    green " DNS服务器常用为53端口, 推荐输入53"
+    yellow " 软路由一般内置DNS服务器, 如果在软路由安装 为避免冲突 默认为5335"
+    echo
+    read -r -p "请填写mosdns运行的端口号? 默认直接回车为5335, 请输入纯数字:" isMosDNSServerPortInput
+    isMosDNSServerPortInput=${isMosDNSServerPortInput:-5335}
+
+    mosDNSServerPort="5335"
+    reNumber='^[0-9]+$'
+
+    if [[ "${isMosDNSServerPortInput}" =~ ${reNumber} ]] ; then
+        mosDNSServerPort="${isMosDNSServerPortInput}"
+    fi
+
+
+
+
+    echo
+    green " ================================================== "
+    green " 是否添加自建的DNS服务器, 默认直接回车不添加"
+    green " 选是为添加DNS服务器, 建议先架设好DNS服务器后再运行此脚本"
+    green " 本脚本默认已经内置了多个DNS服务器地址"
+    echo
+    read -r -p "是否添加自建的DNS服务器? 默认直接回车为不添加, 请输入[y/N]:" isAddNewDNSServerInput
+    isAddNewDNSServerInput=${isAddNewDNSServerInput:-n}
+
+    addNewDNSServerIPMosdnsCnText=""
+    addNewDNSServerDomainMosdnsCnText=""
+
+    addNewDNSServerIPText=""
+    addNewDNSServerDomainText=""
+    if [[ "$isAddNewDNSServerInput" == [Nn] ]]; then
+        echo 
+    else
+        echo
+        green " ================================================== "
+        green " 请输入自建的DNS服务器IP 格式例如 1.1.1.1"
+        green " 请保证端口53 提供DNS解析服务, 如果是非53端口请填写端口号, 格式例如 1.1.1.1:8053"
+        echo 
+        read -r -p "请输入自建DNS服务器IP地址, 请输入:" isAddNewDNSServerIPInput
+
+        if [ -n "${isAddNewDNSServerIPInput}" ]; then
+            addNewDNSServerIPMosdnsCnText="\"udp://${isAddNewDNSServerIPInput}\", "
+            read -r -d '' addNewDNSServerIPText << EOM
+        - addr: "udp://${isAddNewDNSServerIPInput}"
+          idle_timeout: 500
+          trusted: true
+EOM
+
+        fi
+
+        echo
+        green " ================================================== "
+        green " 请输入自建的DNS服务器的域名 用于提供DOH服务, 格式例如 www.dns.com"
+        green " 请保证服务器在 /dns-query 提供DOH服务, 例如 https://www.dns.com/dns-query"
+        echo 
+        read -r -p "请输入自建DOH服务器的域名, 不要输入https://, 请直接输入域名:" isAddNewDNSServerDomainInput
+
+        if [ -n "${isAddNewDNSServerDomainInput}" ]; then
+            addNewDNSServerDomainMosdnsCnText="\"https://${isAddNewDNSServerDomainInput}/dns-query\", "
+            read -r -d '' addNewDNSServerDomainText << EOM
+        - addr: "https://${isAddNewDNSServerDomainInput}/dns-query"       
+          idle_timeout: 400
+          trusted: true
+EOM
+        fi
+    fi
+
+
+    downloadMosdns
+
+
+    if [[ "${isInstallMosdns}" == "true" ]]; then
+
+        rm -f "${configMosdnsPath}/config.yaml"
+
+
+        if [[ "${isUseEasyMosdnsConfig}" == "true" ]]; then
+            downloadAndUnzip "https://mirror.apad.pro/dns/easymosdns.tar.gz" "${configMosdnsPath}" "easymosdns.tar.gz"
+            ${sudoCmd} chmod +x ${configMosdnsPath}/tools/*
+
+            sed -i "s/0\.0\.0\.0:53/0\.0\.0\.0:${mosDNSServerPort}/g" ${configMosdnsPath}/config.yaml
+
+            cd ${configMosdnsBinPath} || exit
+            export PATH="$PATH:${configMosdnsBinPath}"
+
+            ${configMosdnsPath}/tools/config-reset
+
+        else
+        
+
+            cat > "${configMosdnsPath}/config.yaml" <<-EOF    
+
+log:
+  level: info
+  file: "${configMosdnsPath}/mosdns.log"
+
+data_providers:
+  - tag: geosite
+    file: ${configMosdnsPath}/${geositeFilename}
+    auto_reload: true
+  - tag: geoip
+    file: ${configMosdnsPath}/${geoipFilename}
+    auto_reload: true
+
+plugins:
+  # 缓存
+  - tag: cache
+    type: cache
+    args:
+      size: 2048
+      lazy_cache_ttl: 86400 
+      cache_everything: true
+
+  # hosts map
+  # - tag: map_hosts
+  #   type: hosts
+  #   args:
+  #     hosts:
+  #       - 'google.com 0.0.0.0'
+  #       - 'api.miwifi.com 127.0.0.1'
+  #       - 'www.baidu.com 0.0.0.0'
+
+  # 转发至本地服务器的插件
+  - tag: forward_local
+    type: fast_forward
+    args:
+      upstream:
+        - addr: "udp://223.5.5.5"
+          trusted: true
+        - addr: "udp://119.29.29.29"
+          trusted: true
+
+  # 转发至远程服务器的插件
+  - tag: forward_remote
+    type: fast_forward
+    args:
+      upstream:
+${addNewDNSServerIPText}
+${addNewDNSServerDomainText}
+        - addr: "udp://208.67.222.222"
+          trusted: true
+
+        - addr: "udp://1.0.0.1"
+          trusted: true
+        - addr: "https://dns.cloudflare.com/dns-query"
+          idle_timeout: 400
+          trusted: true
+
+
+        - addr: "udp://5.2.75.231"
+          idle_timeout: 400
+          trusted: true
+
+        - addr: "udp://185.121.177.177"
+          idle_timeout: 400
+          trusted: true        
+
+        - addr: "udp://94.130.180.225"
+          idle_timeout: 400
+          trusted: true     
+
+        - addr: "udp://78.47.64.161"
+          idle_timeout: 400
+          trusted: true 
+
+        - addr: "udp://51.38.83.141"          
+
+        - addr: "udp://176.9.93.198"
+        - addr: "udp://176.9.1.117"                  
+
+        - addr: "udp://88.198.92.222"                  
+
+
+  # 匹配本地域名的插件
+  - tag: query_is_local_domain
+    type: query_matcher
+    args:
+      domain:
+        - 'provider:geosite:cn'
+
+  - tag: query_is_gfw_domain
+    type: query_matcher
+    args:
+      domain:
+        - 'provider:geosite:gfw'
+
+  # 匹配非本地域名的插件
+  - tag: query_is_non_local_domain
+    type: query_matcher
+    args:
+      domain:
+        - 'provider:geosite:geolocation-!cn'
+
+  # 匹配广告域名的插件
+  - tag: query_is_ad_domain
+    type: query_matcher
+    args:
+      domain:
+        - 'provider:geosite:category-ads-all'
+
+  # 匹配本地 IP 的插件
+  - tag: response_has_local_ip
+    type: response_matcher
+    args:
+      ip:
+        - 'provider:geoip:cn'
+
+
+  # 主要的运行逻辑插件
+  # sequence 插件中调用的插件 tag 必须在 sequence 前定义，
+  # 否则 sequence 找不到对应插件。
+  - tag: main_sequence
+    type: sequence
+    args:
+      exec:
+        # - map_hosts
+
+        # 缓存
+        - cache
+
+        # 屏蔽广告域名 ad block
+        - if: query_is_ad_domain
+          exec:
+            - _new_nxdomain_response
+            - _return
+
+        # 已知的本地域名用本地服务器解析
+        - if: query_is_local_domain
+          exec:
+            - forward_local
+            - _return
+
+        - if: query_is_gfw_domain
+          exec:
+            - forward_remote
+            - _return
+
+        # 已知的非本地域名用远程服务器解析
+        - if: query_is_non_local_domain
+          exec:
+            - _prefer_ipv4
+            - forward_remote
+            - _return
+
+          # 剩下的未知域名用 IP 分流。
+          # primary 从本地服务器获取应答，丢弃非本地 IP 的结果。
+        - primary:
+            - forward_local
+            - if: "(! response_has_local_ip) && [_response_valid_answer]"
+              exec:
+                - _drop_response
+          secondary:
+            - _prefer_ipv4
+            - forward_remote
+          fast_fallback: 200
+          always_standby: true
+
+servers:
+  - exec: main_sequence
+    listeners:
+      - protocol: udp
+        addr: ":${mosDNSServerPort}"
+      - protocol: tcp
+        addr: ":${mosDNSServerPort}"
+
+EOF
+
+        fi
+
+        ${configMosdnsBinPath}/mosdns service install -c "${configMosdnsPath}/config.yaml" -d "${configMosdnsPath}" 
+        ${configMosdnsBinPath}/mosdns service start
+
+
+    else
+
+        rm -f "${configMosdnsPath}/config_mosdns_cn.yaml"
+
+        cat > "${configMosdnsPath}/config_mosdns_cn.yaml" <<-EOF    
+server_addr: ":${mosDNSServerPort}"
+cache_size: 2048
+lazy_cache_ttl: 86400
+lazy_cache_reply_ttl: 30
+redis_cache: ""
+min_ttl: 300
+max_ttl: 3600
+hosts: []
+arbitrary: []
+blacklist_domain: []
+insecure: false
+ca: []
+debug: false
+log_file: "${configMosdnsPath}/mosdns-cn.log"
+upstream: []
+local_upstream: ["udp://223.5.5.5", "udp://119.29.29.29"]
+local_ip: ["${configMosdnsPath}/${geoipFilename}:cn"]
+local_domain: []
+local_latency: 50
+remote_upstream: [${addNewDNSServerIPMosdnsCnText}  ${addNewDNSServerDomainMosdnsCnText}  "udp://1.0.0.1", "udp://208.67.222.222", "tls://8.8.4.4:853", "udp://5.2.75.231", "udp://172.105.216.54"]
+remote_domain: ["${configMosdnsPath}/${geositeFilename}:geolocation-!cn"]
+working_dir: "${configMosdnsPath}"
+cd2exe: false
+
+EOF
+
+        ${configMosdnsBinPath}/mosdns-cn --service install --config "${configMosdnsPath}/config_mosdns_cn.yaml" --dir "${configMosdnsPath}" 
+
+        ${configMosdnsBinPath}/mosdns-cn --service start
+    fi
+
+    echo 
+    green " =================================================="
+    green " ${isinstallMosdnsName} 安装成功! 运行端口: ${mosDNSServerPort}"
+    echo
+    green " 启动: systemctl start ${isinstallMosdnsName}   停止: systemctl stop ${isinstallMosdnsName}"  
+    green " 重启: systemctl restart ${isinstallMosdnsName}"
+    green " 查看状态: systemctl status ${isinstallMosdnsName} "
+    green " 查看log: journalctl -n 50 -u ${isinstallMosdnsName} "
+    green " 查看访问日志: cat  ${configMosdnsPath}/${isinstallMosdnsName}.log"
+
+    # green " 启动命令: ${configMosdnsBinPath}/${isinstallMosdnsName} -s start -dir ${configMosdnsPath} "
+    # green " 停止命令: ${configMosdnsBinPath}/${isinstallMosdnsName} -s stop -dir ${configMosdnsPath} "
+    # green " 重启命令: ${configMosdnsBinPath}/${isinstallMosdnsName} -s restart -dir ${configMosdnsPath} "
+    green " =================================================="
+
+}
+
+function removeMosdns(){
+    if [[ -f "${configMosdnsBinPath}/mosdns" || -f "${configMosdnsBinPath}/mosdns-cn" ]]; then
+        if [[ -f "${configMosdnsBinPath}/mosdns" ]]; then
+            isInstallMosdns="true"
+            isinstallMosdnsName="mosdns"
+        fi
+
+        if [ -f "${configMosdnsBinPath}/mosdns-cn" ]; then
+            isInstallMosdns="false"
+            isinstallMosdnsName="mosdns-cn"
+        fi
+
+        echo
+        green " =================================================="
+        green " 准备卸载已安装的 ${isinstallMosdnsName} "
+        green " =================================================="
+        echo
+
+        if [[ "${isInstallMosdns}" == "true" ]]; then
+            ${configMosdnsBinPath}/${isinstallMosdnsName} service stop
+            ${configMosdnsBinPath}/${isinstallMosdnsName} service uninstall
+        else
+            ${configMosdnsBinPath}/mosdns-cn --service stop
+            ${configMosdnsBinPath}/mosdns-cn --service uninstall
+
+        fi
+
+        rm -rf "${configMosdnsBinPath}"
+        rm -rf "${configMosdnsPath}"
+
+        echo
+        green " ================================================== "
+        green "  ${isinstallMosdnsName} 卸载完毕 !"
+        green " ================================================== "
+
+    else
+        echo
+        red " 系统没有安装 mosdns, 退出卸载"
+        echo
+    fi
+
+}
+
+
+
+
 
 
 
@@ -6650,7 +7697,7 @@ function getAdGuardHomeSSLCertification(){
         if [[ "${isGetAdGuardSSLCertificateInput}" == [Yy] ]]; then
             ${configAdGuardPath}/AdGuardHome -s stop
             configSSLCertPath="${configSSLCertPath}/adguardhome"
-            getHTTPSCertificateStep1 "$@"
+            renewCertificationWithAcme ""
             replaceAdGuardConfig
         fi
     fi
@@ -6665,7 +7712,7 @@ function replaceAdGuardConfig(){
             yellow " 准备把已申请到的SSL证书填入 AdGuardHome 配置文件"
             yellow " prepare to get SSL certificate and replace AdGuardHome config"
 
-            # 
+            # https://stackoverflow.com/questions/4396974/sed-or-awk-delete-n-lines-following-a-pattern
             sed -i -e '/^tls:/{n;d}' ${configAdGuardPath}/AdGuardHome.yaml
             sed -i "/^tls:/a \  enabled: true" ${configAdGuardPath}/AdGuardHome.yaml
             # sed -i 's/enabled: false/enabled: true/g' ${configAdGuardPath}/AdGuardHome.yaml
@@ -6681,7 +7728,6 @@ function replaceAdGuardConfig(){
             read -r -d '' adGuardConfigUpstreamDns << EOM
   - 1.0.0.1
   - https://dns.cloudflare.com/dns-query
-  - tls://1dot1dot1dot1.cloudflare-dns.com
   - 8.8.8.8
   - https://dns.google/dns-query
   - tls://dns.google
@@ -6722,13 +7768,14 @@ EOM
   name: EasyList China
   id: 1652375945
 EOM
+            # https://fabianlee.org/2018/10/28/linux-using-sed-to-insert-lines-before-or-after-a-match/
+
             TEST3="${adGuardConfigFilters//\\/\\\\}"
             TEST3="${TEST3//\//\\/}"
             TEST3="${TEST3//&/\\&}"
             TEST3="${TEST3//$'\n'/\\n}"
 
             sed -i "/id: 2/a ${TEST3}" ${configAdGuardPath}/AdGuardHome.yaml
-
 
 
             echo
@@ -6741,7 +7788,8 @@ EOM
             red " ${configAdGuardPath}/AdGuardHome.yaml not found, pls complete the AdGuardHome initialization first!"
         fi 
 
-        echo
+    else
+        red "AdGuard Home not found, Please install AdGuard Home first !"
     fi
 
 }
@@ -6779,7 +7827,21 @@ EOM
 
 
 
+function firewallForbiden(){
+    # firewall-cmd --permanent --direct --add-rule ipv4 filter OUTPUT 0 -p tcp -m tcp --dport=25 -j ACCEPT
+    # firewall-cmd --permanent --direct --add-rule ipv4 filter OUTPUT 1 -p tcp -m tcp --dport=25 -j REJECT
+    # firewall-cmd --reload
 
+    firewall-cmd --permanent --direct --add-rule ipv4 filter OUTPUT 0 -p tcp -m tcp --dport=25 -j DROP
+    firewall-cmd --permanent --direct --add-rule ipv4 filter OUTPUT 1 -j ACCEPT
+    firewall-cmd --reload
+
+    # iptables -A OUTPUT -p tcp --dport 25 -j DROP
+
+    # iptables -A INPUT -p tcp -s 0/0 -d 0/0 --dport 80 -j DROP
+    # iptables -A INPUT -p all -j ACCEPT
+    # iptables -A OUTPUT -p all -j ACCEPT
+}
 
 
 
@@ -6816,12 +7878,16 @@ function startMenuOther(){
     green " 45. ZBench 综合网速测试 (包含节点测速, Ping 以及 路由测试)"
     green " 46. testrace 回程路由测试 by nanqinlang （四网路由 上海电信 厦门电信 浙江杭州联通 浙江杭州移动 北京教育网）"
     green " 47. autoBestTrace 回程路由测试 (广州电信 上海电信 厦门电信 重庆联通 成都联通 上海移动 成都移动 成都教育网)"
+    green " 48. 回程路由测试 推荐使用 (北京电信/联通/移动 上海电信/联通/移动 广州电信/联通/移动 )"
+    green " 49. 三网回程路由测试 Go 语言开发 by zhanghanyun "   
+    green " 50. 独立服务器测试 包括系统信息和I/O测试" 
     echo
     green " =================================================="
     green " 51. 测试VPS 是否支持 Netflix 非自制剧解锁 支持 WARP sock5 测试, 推荐使用 "
     green " 52. 测试VPS 是否支持 Netflix, Go语言版本 推荐使用 by sjlleo, 推荐使用"
-    green " 53. 测试VPS 是否支持 Netflix, 检测IP解锁范围及对应所在的地区, 原版 by CoiaPrant"
-    green " 54. 测试VPS 是否支持 Netflix, Disney, Hulu 等等更多流媒体平台, 新版 by lmc999"
+    green " 53. 测试VPS 是否支持 Netflix, Disney, Hulu 等等更多流媒体平台, 新版 by lmc999"
+    #green " 54. 测试VPS 是否支持 Netflix, 检测IP解锁范围及对应所在的地区, 原版 by CoiaPrant"
+
     echo
     green " 61. 安装 官方宝塔面板"
     green " 62. 安装 宝塔面板纯净版 by hostcli.com"
@@ -6860,12 +7926,15 @@ function startMenuOther(){
     green " 45. ZBench "
     green " 46. testrace by nanqinlang （四网路由 上海电信 厦门电信 浙江杭州联通 浙江杭州移动 北京教育网）"
     green " 47. autoBestTrace (Traceroute test 广州电信 上海电信 厦门电信 重庆联通 成都联通 上海移动 成都移动 成都教育网)"
+    green " 48. returnroute test (北京电信/联通/移动 上海电信/联通/移动 广州电信/联通/移动 )"
+    green " 49. returnroute test by zhanghanyun powered by Go (三网回程路由测试 ) "    
+    green " 50. A bench script for dedicated servers "    
     echo
     green " =================================================="
     green " 51. Netflix region and non-self produced drama unlock test, support WARP SOCKS5 proxy and IPv6"
     green " 52. Netflix region and non-self produced drama unlock test by sjlleo using go language."
-    green " 53. Netflix region and non-self produced drama unlock test by CoiaPrant"
-    green " 54. Netflix, Disney, Hulu etc unlock test by by lmc999"
+    green " 53. Netflix, Disney, Hulu etc unlock test by by lmc999"
+    #green " 54. Netflix region and non-self produced drama unlock test by CoiaPrant"
     echo
     green " 61. install official bt panel (aa panel)"
     green " 62. install modified bt panel (aa panel) by hostcli.com"
@@ -6933,9 +8002,19 @@ function startMenuOther(){
         ;;
         46 )
             vps_testrace
-        ;;        
+        ;;
         47 )
             vps_autoBestTrace
+        ;;
+        48 )
+            vps_returnroute
+            vps_returnroute2
+        ;;
+        49 )
+            vps_returnroute2
+        ;;                
+        50 )
+            vps_bench_dedicated
         ;;        
         51 )
             vps_netflix_jin
@@ -6944,7 +8023,7 @@ function startMenuOther(){
             vps_netflixgo
         ;;
         53 )
-            vps_netflix
+            vps_netflix2
         ;;
         54 )
             vps_netflix2
@@ -7014,15 +8093,17 @@ function start_menu(){
     if [[ ${configLanguage} == "cn" ]] ; then
 
     green " ===================================================================================================="
-    green " Trojan Trojan-go V2ray Xray 一键安装脚本 | 2022-4-29 | 系统支持：centos7+ / debian9+ / ubuntu16.04+"
+    green " Trojan-go V2ray Xray 一键安装脚本 | 2022-10-23 | 系统支持：centos7+ / debian9+ / ubuntu16.04+"
     green " ===================================================================================================="
     green " 1. 安装linux内核 bbr plus, 安装WireGuard, 用于解锁 Netflix 限制和避免弹出 Google reCAPTCHA 人机验证"
     echo
-    green " 2. 安装 trojan 或 trojan-go 和 nginx, 不支持CDN, trojan 或 trojan-go 运行在443端口"
-    green " 3. 安装 trojan-go 和 nginx, 支持CDN 开启websocket, trojan-go 运行在443端口"
-    green " 4. 只安装 trojan 或 trojan-go 运行在443或自定义端口, 不安装nginx, 方便与现有网站或宝塔面板集成"
-    green " 5. 升级 trojan 或 trojan-go 到最新版本"
-    red " 6. 卸载 trojan 或 trojan-go 和 nginx"
+    green " 2. 安装 trojan/trojan-go 和 nginx, 支持CDN 开启websocket, trojan-go 运行在443端口"
+    green " 3. 只安装 trojan/trojan-go 运行在443或自定义端口, 不安装nginx, 方便与现有网站或宝塔面板集成"
+    red " 4. 卸载 trojan/trojan-go 和 nginx"
+    echo
+    green " 6. 安装 Shadowsocks Rust 支持 Shadowsocks 2022 加密方式, 运行在随机端口"
+    green " 7. 安装 Xray Shadowsocks 支持 Shadowsocks 2022 加密方式, 运行在随机端口"
+    red " 8. 卸载 Shadowsocks Rust 或 Xray "
     echo
     green " 11. 安装 v2ray或xray 和 nginx ([Vmess/Vless]-[TCP/WS/gRPC/H2/QUIC]-TLS), 支持CDN, nginx 运行在443端口"
     green " 12. 只安装 v2ray或xray ([Vmess/Vless]-[TCP/WS/gRPC/H2/QUIC]), 无TLS加密, 方便与现有网站或宝塔面板集成"
@@ -7035,23 +8116,25 @@ function start_menu(){
     green " 18. 升级 v2ray或xray 到最新版本"
     red " 19. 卸载 v2ray或xray 和 nginx"
     echo
-    green " 21. 同时安装 v2ray或xray 和 trojan或trojan-go (VLess-TCP-[TLS/XTLS])+(VLess-WS-TLS)+Trojan, 支持CDN, 可选安装nginx, VLess运行在443端口"  
-    green " 22. 同时安装 nginx, v2ray或xray 和 trojan或trojan-go (VLess/Vmess-WS-TLS)+Trojan, 支持CDN, trojan或trojan-go运行在443端口"  
-    green " 23. 同时安装 nginx, v2ray或xray 和 trojan或trojan-go, 通过 nginx SNI 分流, 支持CDN, 支持与现有网站共存, nginx 运行在443端口 "
-    red " 24. 卸载 trojan, v2ray或xray 和 nginx"
+    green " 21. 同时安装 v2ray或xray 和 trojan-go (VLess-TCP-[TLS/XTLS])+(VLess-WS-TLS)+Trojan, 支持CDN, 可选安装nginx, VLess运行在443端口"  
+    green " 22. 同时安装 nginx, v2ray或xray 和 trojan-go (VLess/Vmess-WS-TLS)+Trojan, 支持CDN, trojan-go运行在443端口"  
+    green " 23. 同时安装 nginx, v2ray或xray 和 trojan-go, 通过 nginx SNI 分流, 支持CDN, 支持与现有网站共存, nginx 运行在443端口 "
+    red " 24. 卸载 trojan-go, v2ray或xray 和 nginx"
     echo
     green " 25. 查看已安装的配置和用户密码等信息"
     green " 26. 申请免费的SSL证书"
-    green " 27. 安装DNS国内国外分流服务器 mosdns"
-    green " 28. 安装DNS服务器 AdGuardHome 支持去广告"
-    green " 29. 给 AdGuardHome 申请免费的SSL证书, 并开启DOH与DOT"
     green " 30. 子菜单 安装 trojan 和 v2ray 可视化管理面板, VPS测速工具, Netflix测试解锁工具, 安装宝塔面板等"
     green " =================================================="
-    green " 31. 安装OhMyZsh与插件zsh-autosuggestions, Micro编辑器 等软件"
-    green " 32. 开启root用户SSH登陆, 如谷歌云默认关闭root登录,可以通过此项开启"
-    green " 33. 修改SSH 登陆端口号"
-    green " 34. 设置时区为北京时间"
-    green " 35. 用 VI 编辑 authorized_keys 文件 填入公钥, 用于SSH免密码登录 增加安全性"
+    green " 31. 安装DNS服务器 AdGuardHome 支持去广告"
+    green " 32. 给 AdGuardHome 申请免费的SSL证书, 并开启DOH与DOT"    
+    green " 33. 安装DNS国内国外分流服务器 mosdns 或 mosdns-cn"    
+    red " 34. 卸载 mosdns 或 mosdns-cn DNS服务器 "
+    echo
+    green " 41. 安装OhMyZsh与插件zsh-autosuggestions, Micro编辑器 等软件"
+    green " 42. 开启root用户SSH登陆, 如谷歌云默认关闭root登录,可以通过此项开启"
+    green " 43. 修改SSH 登陆端口号"
+    green " 44. 设置时区为北京时间"
+    green " 45. 用 VI 编辑 authorized_keys 文件 填入公钥, 用于SSH免密码登录 增加安全性"
     echo
     green " 88. 升级脚本"
     green " 0. 退出脚本"
@@ -7060,15 +8143,17 @@ function start_menu(){
 
 
     green " ===================================================================================================="
-    green " Trojan Trojan-go V2ray Xray Installation | 2022-4-29 | OS support: centos7+ / debian9+ / ubuntu16.04+"
+    green " Trojan-go V2ray Xray Installation | 2022-10-23 | OS support: centos7+ / debian9+ / ubuntu16.04+"
     green " ===================================================================================================="
     green " 1. Install linux kernel,  bbr plus kernel, WireGuard and Cloudflare WARP. Unlock Netflix geo restriction and avoid Google reCAPTCHA"
     echo
-    green " 2. Install trojan/trojan-go with nginx, not support CDN acceleration, trojan/trojan-go running at 443 port serve TLS"
-    green " 3. Install trojan-go with nginx, enable websocket, support CDN acceleration, trojan-go running at 443 port serve TLS"
-    green " 4. Install trojan/trojan-go only, trojan/trojan-go running at 443(can customize port) serve TLS. Easy integration with existing website"
-    green " 5. Upgrade trojan/trojan-go to latest version"
-    red " 6. Remove trojan/trojan-go and nginx"
+    green " 2. Install trojan/trojan-go with nginx, enable websocket, support CDN acceleration, trojan-go running at 443 port serve TLS"
+    green " 3. Install trojan/trojan-go only, trojan-go running at 443(can customize port) serve TLS. Easy integration with existing website"
+    red " 4. Remove trojan/trojan-go and nginx"
+    echo
+    green " 6. Install Shadowsocks Rust"
+    green " 7. Install Xray Shadowsocks"
+    red " 8. Remove Shadowsocks Rust or Xray"
     echo
     green " 11. Install v2ray/xray with nginx, ([Vmess/Vless]-[TCP/WS/gRPC/H2/QUIC]-TLS), support CDN acceleration, nginx running at 443 port serve TLS"
     green " 12. Install v2ray/xray only. ([Vmess/Vless]-[TCP/WS/gRPC/H2/QUIC]), no TLS encryption. Easy integration with existing website"
@@ -7081,23 +8166,26 @@ function start_menu(){
     green " 18. Upgrade v2ray/xray to latest version"
     red " 19. Remove v2ray/xray and nginx"
     echo
-    green " 21. Install both v2ray/xray and trojan/trojan-go (VLess-TCP-[TLS/XTLS])+(VLess-WS-TLS)+Trojan, support CDN, nginx is optional, VLess running at 443 port serve TLS"
-    green " 22. Install both v2ray/xray and trojan/trojan-go with nginx, (VLess/Vmess-WS-TLS)+Trojan, support CDN, trojan/trojan-go running at 443 port serve TLS"
-    green " 23. Install both v2ray/xray and trojan/trojan-go with nginx. Using nginx SNI distinguish traffic by different domain name, support CDN. Easy integration with existing website. nginx SNI running at 443 port"
-    red " 24.  Remove trojan/trojan-go, v2ray/xray and nginx"
+    green " 21. Install both v2ray/xray and trojan-go (VLess-TCP-[TLS/XTLS])+(VLess-WS-TLS)+Trojan, support CDN, nginx is optional, VLess running at 443 port serve TLS"
+    green " 22. Install both v2ray/xray and trojan-go with nginx, (VLess/Vmess-WS-TLS)+Trojan, support CDN, trojan-go running at 443 port serve TLS"
+    green " 23. Install both v2ray/xray and trojan-go with nginx. Using nginx SNI distinguish traffic by different domain name, support CDN. Easy integration with existing website. nginx SNI running at 443 port"
+    red " 24. Remove trojan-go, v2ray/xray and nginx"
     echo
-    green " 25. Show info and password for installed trojan and v2ray"
+    green " 25. Show info and password for installed trojan-go and v2ray"
     green " 26. Get a free SSL certificate for one or multiple domains"
-    green " 27. Install DNS server MosDNS"
-    green " 28. Install AdGuardHome ads & trackers blocking DNS server "
-    green " 29. Get free SSL certificate for AdGuardHome and enable DOH/DOT "
     green " 30. Submenu. install trojan and v2ray UI admin panel, VPS speedtest tools, Netflix unlock tools. Miscellaneous tools"
     green " =================================================="
-    green " 31. Install Oh My Zsh and zsh-autosuggestions plugin, Micro editor"
-    green " 32. Enable root user login SSH, Some VPS disable root login as default, use this option to enable"
-    green " 33. Modify SSH login port number. Secure your VPS"
-    green " 34. Set timezone to Beijing time"
-    green " 35. Using VI open authorized_keys file, enter your public key. Then save file. In order to login VPS without Password"
+    green " 31. Install AdGuardHome, ads & trackers blocking DNS server "
+    green " 32. Get free SSL certificate for AdGuardHome and enable DOH/DOT "
+    green " 33. Install DNS server MosDNS/MosDNS-cn"
+    red " 34. Remove DNS server MosDNS/MosDNS-cn"
+
+    echo
+    green " 41. Install Oh My Zsh and zsh-autosuggestions plugin, Micro editor"
+    green " 42. Enable root user login SSH, Some VPS disable root login as default, use this option to enable"
+    green " 43. Modify SSH login port number. Secure your VPS"
+    green " 44. Set timezone to Beijing time"
+    green " 45. Using VI open authorized_keys file, enter your public key. Then save file. In order to login VPS without Password"
     echo
     green " 88. upgrade this script to latest version"
     green " 0. exit"
@@ -7113,22 +8201,24 @@ function start_menu(){
         ;;
         2 )
             configInstallNginxMode="noSSL"
-            installTrojanV2rayWithNginx "trojan_nginx"
-        ;;
-        3 )
-            configInstallNginxMode="noSSL"
             isTrojanGoSupportWebsocket="true"
             installTrojanV2rayWithNginx "trojan_nginx"
         ;;
-        4 )
+        3 )
             installTrojanV2rayWithNginx "trojan"
         ;;
-        5 )
-            upgradeTrojan
-        ;;
-        6 )
+        4 )
             removeTrojan
             removeNginx
+        ;;
+        6 )
+            installShadowsocksRust
+        ;;
+        7 )
+            installShadowsocks
+        ;;
+        8 )
+            removeShadowsocks
         ;;
         11 )
             configInstallNginxMode="v2raySSL"
@@ -7199,40 +8289,43 @@ function start_menu(){
         26 )
             installTrojanV2rayWithNginx
         ;;
-        27 )
-            installMosdns
-        ;;
-        28 )
-            installAdGuardHome
-        ;;
-        29 )
-            getAdGuardHomeSSLCertification "$@"
-        ;;
         30 )
             startMenuOther
-        ;;        
+        ;;
         31 )
+            installAdGuardHome
+        ;;
+        32 )
+            getAdGuardHomeSSLCertification "$@"
+        ;;        
+        33 )
+            installMosdns
+        ;;        
+        34 )
+            removeMosdns
+        ;;
+        41 )
             setLinuxDateZone
             installPackage
             installSoftEditor
             installSoftOhMyZsh
         ;;
-        32 )
+        42 )
             setLinuxRootLogin
             sleep 4s
             start_menu
         ;;
-        33 )
+        43 )
             changeLinuxSSHPort
             sleep 10s
             start_menu
         ;;
-        34 )
+        44 )
             setLinuxDateZone
             sleep 4s
             start_menu
         ;;
-        35 )
+        45 )
             editLinuxLoginWithPublicKey
         ;;
 
@@ -7242,6 +8335,10 @@ function start_menu(){
             echo "isTrojanMultiPassword: yes"
             sleep 3s
             start_menu
+        ;;
+        76 )
+            vps_returnroute
+            vps_returnroute2
         ;;
         77 )
             vps_netflixgo
@@ -7256,16 +8353,17 @@ function start_menu(){
         82 )
             installBBR2
         ;;
+        83 )
+            installSWAP
+        ;;
+        84 )
+            firewallForbiden
+        ;;        
         88 )
             upgradeScript
         ;;
         99 )
-            getTrojanAndV2rayVersion "trojan"
-            getTrojanAndV2rayVersion "trojan-go"
-            getTrojanAndV2rayVersion "trojan-web"
-            getTrojanAndV2rayVersion "v2ray"
-            getTrojanAndV2rayVersion "xray"
-            getTrojanAndV2rayVersion "wgcf"
+            getV2rayVersion "wgcf"
         ;;
         0 )
             exit 1
@@ -7329,6 +8427,7 @@ function showMenu(){
         ;;
         esac
     else
+        installPackage
         setLanguage
     fi
 }
