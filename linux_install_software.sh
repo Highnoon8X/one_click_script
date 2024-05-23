@@ -74,7 +74,7 @@ function promptContinueOpeartion(){
 
 	if [[ $isContinueInput == [Yy] ]]; then
 		echo ""
-	else 
+	else
 		exit 1
 	fi
 }
@@ -150,7 +150,7 @@ getLinuxOSVersion(){
         # For some versions of Debian/Ubuntu without lsb_release command
         . /etc/lsb-release
         osInfo=$DISTRIB_ID
-        
+
         osReleaseVersionNo=$DISTRIB_RELEASE
     elif [ -f /etc/debian_version ]; then
         # Older Debian/Ubuntu/etc.
@@ -210,7 +210,7 @@ function getLinuxOSRelease(){
     getLinuxOSVersion
     checkArchitecture
 	checkCPU
-    
+
 
     [[ -z $(echo $SHELL|grep zsh) ]] && osSystemShell="bash" || osSystemShell="zsh"
 
@@ -243,7 +243,7 @@ function getVPSIP(){
     green "If VPS IP is not ${configLocalVPSIp}, pls input the IP manually"
     echo
     read -r -p "是否手动输入IP 默认否, 请输入[y/N]:" isChangeVPSIPInput
-    
+
     if [[ $isChangeVPSIPInput == [yY] ]]; then
         getVPSIPInput
     fi
@@ -391,7 +391,7 @@ function changeLinuxSSHPort(){
             fi
 
             if command -v firewall-cmd &> /dev/null; then
-                firewall-cmd --permanent --zone=public --add-port=$osSSHLoginPortInput/tcp 
+                firewall-cmd --permanent --zone=public --add-port=$osSSHLoginPortInput/tcp
                 firewall-cmd --reload
             fi
 
@@ -401,7 +401,7 @@ function changeLinuxSSHPort(){
         fi
 
         if [ "$osRelease" == "ubuntu" ] || [ "$osRelease" == "debian" ] ; then
-            
+
             if ! command -v semanage &> /dev/null; then
                 echo "semanage command could not be found"
             else
@@ -436,7 +436,7 @@ function setLinuxDateZone(){
     echo
     if [[ ${tempCurrentDateZone} == "+0800" ]]; then
         yellow "当前时区已经为北京时间  $tempCurrentDateZone | $(date -R) "
-    else 
+    else
         green " =================================================="
         yellow " 当前时区为: $tempCurrentDateZone | $(date -R) "
         yellow " 是否设置时区为北京时间 +0800区, 以便cron定时重启脚本按照北京时间运行."
@@ -459,7 +459,7 @@ function setLinuxDateZone(){
     fi
     echo
 
-    if [ "$osRelease" == "centos" ]; then   
+    if [ "$osRelease" == "centos" ]; then
         if  [[ ${osReleaseVersionNoShort} == "7" ]]; then
             systemctl stop chronyd
             systemctl disable chronyd
@@ -485,12 +485,17 @@ function setLinuxDateZone(){
 
             echo
         fi
-        
+
     else
-        $osSystemPackage install -y ntp
-        systemctl enable ntp
-        systemctl restart ntp
-    fi    
+        if [[ "${osReleaseVersionNoShort}" == "12" ]]; then
+            systemctl restart systemd-timesyncd
+            timedatectl timesync-status
+        else
+            $osSystemPackage install -y ntp
+            systemctl enable ntp
+            systemctl restart ntp
+        fi
+    fi
 }
 
 
@@ -532,14 +537,14 @@ function installSoftDownload(){
 	if [[ "${osRelease}" == "debian" || "${osRelease}" == "ubuntu" ]]; then
 		if ! dpkg -l | grep -qw wget; then
 			${osSystemPackage} -y install wget git unzip curl apt-transport-https
-			
+
 			# https://stackoverflow.com/questions/11116704/check-if-vt-x-is-activated-without-having-to-reboot-in-linux
 			${osSystemPackage} -y install cpu-checker
 		fi
 
 		if ! dpkg -l | grep -qw curl; then
 			${osSystemPackage} -y install curl git unzip wget apt-transport-https
-			
+
 			${osSystemPackage} -y install cpu-checker
 		fi
 
@@ -561,7 +566,7 @@ function installSoftDownload(){
             ${sudoCmd} dnf swap centos-{linux,stream}-repos -y
             ${sudoCmd} dnf distro-sync -y
         fi
-        
+
         if ! rpm -qa | grep -qw wget; then
 		    ${osSystemPackage} -y install wget curl git unzip
 
@@ -580,12 +585,12 @@ function installPackage(){
     green " =================================================="
     echo
 
-    
+
     # sed -i '1s/^/nameserver 1.1.1.1 \n/' /etc/resolv.conf
 
 
     if [ "$osRelease" == "centos" ]; then
-       
+
         # rpm -Uvh http://nginx.org/packages/centos/7/noarch/RPMS/nginx-release-centos-7-0.el7.ngx.noarch.rpm
         rm -f /etc/yum.repos.d/nginx.repo
         # cat > "/etc/yum.repos.d/nginx.repo" <<-EOF
@@ -595,14 +600,14 @@ function installPackage(){
 # gpgcheck=0
 # enabled=1
 # sslverify=0
-# 
+#
 # EOF
 
         if ! rpm -qa | grep -qw iperf3; then
 			${sudoCmd} ${osSystemPackage} install -y epel-release
 
             ${osSystemPackage} install -y curl wget git unzip zip tar bind-utils htop net-tools
-            ${osSystemPackage} install -y xz jq redhat-lsb-core 
+            ${osSystemPackage} install -y xz jq redhat-lsb-core
             ${osSystemPackage} install -y iputils
             ${osSystemPackage} install -y iperf3
 		fi
@@ -618,10 +623,10 @@ function installPackage(){
         fi
 
     elif [ "$osRelease" == "ubuntu" ]; then
-        
+
         # https://joshtronic.com/2018/12/17/how-to-install-the-latest-nginx-on-debian-and-ubuntu/
         # https://www.nginx.com/resources/wiki/start/topics/tutorials/install/
-        
+
         $osSystemPackage install -y gnupg2 curl ca-certificates lsb-release ubuntu-keyring
         # wget -O - https://nginx.org/keys/nginx_signing.key | ${sudoCmd} apt-key add -
         curl https://nginx.org/keys/nginx_signing.key | gpg --dearmor | sudo tee /usr/share/keyrings/nginx-archive-keyring.gpg >/dev/null
@@ -650,7 +655,7 @@ EOF
             ${osSystemPackage} install -y xz-utils jq lsb-core lsb-release
             ${osSystemPackage} install -y iputils-ping
             ${osSystemPackage} install -y iperf3
-		fi    
+		fi
 
     elif [ "$osRelease" == "debian" ]; then
         # ${sudoCmd} add-apt-repository ppa:nginx/stable -y
@@ -658,7 +663,7 @@ EOF
 
         apt install -y gnupg2
         apt install -y curl ca-certificates lsb-release
-        wget https://nginx.org/keys/nginx_signing.key -O- | apt-key add - 
+        wget https://nginx.org/keys/nginx_signing.key -O- | apt-key add -
 
         rm -f /etc/apt/sources.list.d/nginx.list
         if [[ "${osReleaseVersionNoShort}" == "12" ]]; then
@@ -678,7 +683,7 @@ EOF
             ${osSystemPackage} install -y xz-utils jq lsb-core lsb-release
             ${osSystemPackage} install -y iputils-ping
             ${osSystemPackage} install -y iperf3
-        fi        
+        fi
     fi
 }
 
@@ -700,7 +705,7 @@ function installSoftEditor(){
         green " =================================================="
     fi
 
-    if [ "$osRelease" == "centos" ]; then   
+    if [ "$osRelease" == "centos" ]; then
         $osSystemPackage install -y xz  vim-minimal vim-enhanced vim-common nano
     else
         $osSystemPackage install -y vim-gui-common vim-runtime vim nano
@@ -738,7 +743,7 @@ EOF
 # 更新本脚本
 function upgradeScript(){
     wget -Nq --no-check-certificate -O ./linux_install_software.sh "https://raw.githubusercontent.com/jinwyp/one_click_script/master/linux_install_software.sh"
-    green " 本脚本升级成功! "
+    green " Script upgrade successful. 本脚本升级成功! "
     chmod +x ./linux_install_software.sh
     sleep 2s
     exec "./linux_install_software.sh"
@@ -900,7 +905,7 @@ function getGithubLatestReleaseVersion2(){
 
 
 function installNodejs(){
-    
+
     showHeaderGreen "Prepare to install Nodejs"
 
     if [ "$osRelease" == "centos" ] ; then
@@ -916,7 +921,7 @@ function installNodejs(){
             ${sudoCmd} dnf install -y nodejs
         fi
 
-    else 
+    else
         curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.1/install.sh | bash
         echo 'export NVM_DIR="$HOME/.nvm"' >> ${HOME}/.zshrc
         echo '[ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"' >> ${HOME}/.zshrc
@@ -931,13 +936,13 @@ function installNodejs(){
 
     echo
     green " Nodejs 版本:"
-    node --version 
+    node --version
     echo
     green " NPM 版本:"
-    npm --version  
+    npm --version
 
     showHeaderGreen "准备安装 PM2 进程守护程序"
-    npm install -g pm2 
+    npm install -g pm2
 
     showHeaderGreen "Nodejs 与 PM2 安装成功 !"
 }
@@ -967,12 +972,12 @@ function installDocker(){
 
             # https://linuxconfig.org/install-docker-on-almalinux
             ${sudoCmd} dnf config-manager --add-repo https://download.docker.com/linux/centos/docker-ce.repo
-            ${sudoCmd} dnf remove -y podman buildah 
+            ${sudoCmd} dnf remove -y podman buildah
             ${sudoCmd} dnf install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
 
         elif [[ "$osRelease" == "debian" ]]; then
-            for pkg in docker.io docker-doc docker-compose podman-docker containerd runc; 
-            do 
+            for pkg in docker.io docker-doc docker-compose podman-docker containerd runc;
+            do
                 ${sudoCmd} apt-get remove $pkg;
             done
 
@@ -986,12 +991,12 @@ function installDocker(){
             "deb [arch="$(dpkg --print-architecture)" signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/debian \
             ${osReleaseVersionCodeName} stable" | \
             sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
-            
+
             ${sudoCmd} apt-get update
             ${sudoCmd} apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
         else
             curl -fsSL https://get.docker.com -o ${configDockerDownloadPath}/get-docker.sh
-            # curl -sSL https://get.daocloud.io/docker -o ${configDockerDownloadPath}/get-docker.sh  
+            # curl -sSL https://get.daocloud.io/docker -o ${configDockerDownloadPath}/get-docker.sh
             chmod +x ${configDockerDownloadPath}/get-docker.sh
             ${configDockerDownloadPath}/get-docker.sh
 
@@ -1016,7 +1021,7 @@ function installDocker(){
         # dockerComposeUrl="https://github.com/docker/compose/releases/download/v${versionDockerCompose}/docker-compose-$(uname -s)-$(uname -m)"
         dockerComposeUrl="https://github.com/docker/compose/releases/download/v${versionDockerCompose}/docker-compose-linux-x86_64"
         #dockerComposeUrl="https://get.daocloud.io/docker/compose/releases/download/v${versionDockerCompose}/docker-compose-linux-x86_64"
-        
+
         showInfoGreen "Downloading  ${dockerComposeUrl}"
 
 
@@ -1029,10 +1034,10 @@ function installDocker(){
 
         rm -f "$(which dc)"
         ${sudoCmd} ln -s ${configDockerComposePath}/docker-compose /usr/bin/dc
-        
+
         # rm -f "/usr/bin/docker-compose"
         # ${sudoCmd} ln -s /usr/local/bin/docker-compose /usr/bin/docker-compose
-        
+
         showHeaderGreen "Docker-Compose installed successfully !"
         docker compose version
         echo
@@ -1049,15 +1054,15 @@ function removeDocker(){
         sudo yum remove docker docker-common container-selinux docker-selinux docker-engine
         sudo yum remove docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
 
-    else 
+    else
         sudo apt-get remove -y docker docker-engine
         sudo apt-get remove -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
-    
+
     fi
 
     rm -rf /var/lib/docker/
 
-    rm -f "$(which dc)" 
+    rm -f "$(which dc)"
     rm -f "/usr/bin/docker"
     rm -f "/usr/bin/docker-compose"
     rm -f "/usr/local/bin/docker-compose"
@@ -1103,7 +1108,7 @@ function installPortainer(){
 
     echo
     docker pull portainer/portainer-ce
-    
+
     echo
     docker run -d -p 8000:8000 -p 9000:9000 --name=portainer --restart=always -v /var/run/docker.sock:/var/run/docker.sock -v portainer_data:/data portainer/portainer-ce
 
@@ -1164,7 +1169,7 @@ isDomainSSLGoogleEABIdInput=""
 
 function getHTTPSCertificateCheckEmail(){
     if [ -z $2 ]; then
-        
+
         if [[ $1 == "email" ]]; then
             red " 输入邮箱地址不能为空, 请重新输入!"
             getHTTPSCertificateInputEmail
@@ -1173,7 +1178,7 @@ function getHTTPSCertificateCheckEmail(){
             getHTTPSCertificateInputGoogleEABKey
         elif [[ $1 == "googleEabId" ]]; then
             red " 输入EAB Id 不能为空, 请重新输入!"
-            getHTTPSCertificateInputGoogleEABId            
+            getHTTPSCertificateInputGoogleEABId
         fi
     fi
 }
@@ -1206,7 +1211,7 @@ configWebsiteFatherPath="/nginxweb"
 configSSLCertPath="${configWebsiteFatherPath}/cert"
 configSSLCertPathV2board="${configWebsiteFatherPath}/cert/v2board"
 configSSLCertKeyFilename="server.key"
-configSSLCertFullchainFilename="server.crt"
+configSSLCertFullchainFilename="server_fullchain.cert"
 
 
 
@@ -1229,14 +1234,14 @@ function getHTTPSCertificateWithAcme(){
     echo
     read -r -p "请选择证书提供商? 默认直接回车为通过 Letsencrypt.org 申请, 请输入纯数字:" isDomainSSLFromLetInput
     isDomainSSLFromLetInput=${isDomainSSLFromLetInput:-1}
-    
+
     if [[ "$isDomainSSLFromLetInput" == "2" ]]; then
         getHTTPSCertificateInputEmail
         acmeSSLDays="179"
         acmeSSLServerName="buypass"
         echo
         ${configSSLAcmeScriptPath}/acme.sh --register-account --accountemail ${acmeSSLRegisterEmailInput} --server buypass
-        
+
     elif [[ "$isDomainSSLFromLetInput" == "3" ]]; then
         getHTTPSCertificateInputEmail
         acmeSSLServerName="zerossl"
@@ -1251,7 +1256,7 @@ function getHTTPSCertificateWithAcme(){
         acmeSSLServerName="google"
         getHTTPSCertificateInputGoogleEABKey
         getHTTPSCertificateInputGoogleEABId
-        ${configSSLAcmeScriptPath}/acme.sh --register-account -m ${acmeSSLRegisterEmailInput} --server google --eab-kid ${isDomainSSLGoogleEABIdInput} --eab-hmac-key ${isDomainSSLGoogleEABKeyInput}    
+        ${configSSLAcmeScriptPath}/acme.sh --register-account -m ${acmeSSLRegisterEmailInput} --server google --eab-kid ${isDomainSSLGoogleEABIdInput} --eab-hmac-key ${isDomainSSLGoogleEABKeyInput}
     else
         acmeSSLServerName="letsencrypt"
         #${configSSLAcmeScriptPath}/acme.sh --issue -d ${configSSLDomain} --webroot ${configWebsitePath} --keylength ec-256 --days 89 --server letsencrypt
@@ -1289,9 +1294,9 @@ function getHTTPSCertificateWithAcme(){
             green " 4 nginx 模式 适合已经安装 Nginx, 请确保 Nginx 已经运行"
             echo
             read -r -p "请选择http申请证书方式? 默认为 ${acmeDefaultText}, 请输入纯数字:" isAcmeSSLWebrootModeInput
-       
+
             isAcmeSSLWebrootModeInput=${isAcmeSSLWebrootModeInput:-${acmeDefaultValue}}
-            
+
             if [[ ${isAcmeSSLWebrootModeInput} == "1" ]]; then
                 acmeSSLHttpWebrootMode="standalone"
             elif [[ ${isAcmeSSLWebrootModeInput} == "2" ]]; then
@@ -1316,30 +1321,30 @@ function getHTTPSCertificateWithAcme(){
         echo
         if [[ ${acmeSSLHttpWebrootMode} == "standalone" ]] ; then
             green " 开始申请证书 acme.sh 通过 http standalone mode 从 ${acmeSSLServerName} 申请, 请确保80端口不被占用 "
-            
+
             echo
             ${configSSLAcmeScriptPath}/acme.sh --issue -d ${configSSLDomain} --standalone --keylength ec-256 --days ${acmeSSLDays} --server ${acmeSSLServerName}
-        
+
         elif [[ ${acmeSSLHttpWebrootMode} == "webroot" ]] ; then
             green " 开始申请证书, acme.sh 通过 http webroot mode 从 ${acmeSSLServerName} 申请, 请确保web服务器 例如 nginx 已经运行在80端口 "
-            
+
             echo
             read -r -p "请输入Web服务器的html网站根目录路径? 例如/usr/share/nginx/html:" isDomainSSLNginxWebrootFolderInput
             echo " 您输入的网站根目录路径为 ${isDomainSSLNginxWebrootFolderInput}"
-            
+
 
             if [ -z "${isDomainSSLNginxWebrootFolderInput}" ]; then
                 red " 输入的Web服务器的 html网站根目录路径不能为空, 网站根目录将默认设置为 ${configWebsitePath}, 请修改你的web服务器配置后再申请证书!"
             else
                 configWebsitePath="${isDomainSSLNginxWebrootFolderInput}"
             fi
-            
+
             echo
             ${configSSLAcmeScriptPath}/acme.sh --issue -d ${configSSLDomain} --webroot ${configWebsitePath} --keylength ec-256 --days ${acmeSSLDays} --server ${acmeSSLServerName}
-        
+
         elif [[ ${acmeSSLHttpWebrootMode} == "nginx" ]] ; then
             green " 开始申请证书, acme.sh 通过 http nginx mode 从 ${acmeSSLServerName} 申请, 请确保web服务器 nginx 已经运行 "
-            
+
             echo
             ${configSSLAcmeScriptPath}/acme.sh --issue -d ${configSSLDomain} --nginx --keylength ec-256 --days ${acmeSSLDays} --server ${acmeSSLServerName}
 
@@ -1349,7 +1354,7 @@ function getHTTPSCertificateWithAcme(){
 
             ranDownloadUrl="https://github.com/m3ng9i/ran/releases/download/v0.1.6/ran_linux_amd64.zip"
             ranDownloadFileName="ran_linux_amd64"
-            
+
             if [[ "${osArchitecture}" == "arm64" || "${osArchitecture}" == "arm" ]]; then
                 ranDownloadUrl="https://github.com/m3ng9i/ran/releases/download/v0.1.6/ran_linux_arm64.zip"
                 ranDownloadFileName="ran_linux_arm64"
@@ -1357,19 +1362,19 @@ function getHTTPSCertificateWithAcme(){
 
 
             mkdir -p ${configRanPath}
-            
+
             if [[ -f "${configRanPath}/${ranDownloadFileName}" ]]; then
                 green " 检测到 ran 已经下载过, 准备启动 ran 临时的web服务器 "
             else
                 green " 开始下载 ran 作为临时的web服务器 "
-                downloadAndUnzip "${ranDownloadUrl}" "${configRanPath}" "${ranDownloadFileName}" 
+                downloadAndUnzip "${ranDownloadUrl}" "${configRanPath}" "${ranDownloadFileName}"
                 chmod +x "${configRanPath}/${ranDownloadFileName}"
             fi
 
             echo "nohup ${configRanPath}/${ranDownloadFileName} -l=false -g=false -sa=true -p=80 -r=${configWebsitePath} >/dev/null 2>&1 &"
             nohup ${configRanPath}/${ranDownloadFileName} -l=false -g=false -sa=true -p=80 -r=${configWebsitePath} >/dev/null 2>&1 &
             echo
-            
+
             green " 开始申请证书, acme.sh 通过 http webroot mode 从 ${acmeSSLServerName} 申请, 并使用 ran 作为临时的web服务器 "
             echo
             ${configSSLAcmeScriptPath}/acme.sh --issue -d ${configSSLDomain} --webroot ${configWebsitePath} --keylength ec-256 --days ${acmeSSLDays} --server ${acmeSSLServerName}
@@ -1386,9 +1391,9 @@ function getHTTPSCertificateWithAcme(){
         red "注意 CloudFlare 针对某些免费域名例如 .tk .cf 等  不再支持使用API 申请DNS证书 "
         echo
         read -r -p "请选择 DNS 提供商 ? 默认直接回车为 1. CloudFlare, 请输入纯数字:" isAcmeSSLDNSProviderInput
-        isAcmeSSLDNSProviderInput=${isAcmeSSLDNSProviderInput:-1}    
+        isAcmeSSLDNSProviderInput=${isAcmeSSLDNSProviderInput:-1}
 
-        
+
         if [ "$isAcmeSSLDNSProviderInput" == "2" ]; then
             read -r -p "Please Input Ali Key: " Ali_Key
             export Ali_Key="${Ali_Key}"
@@ -1417,17 +1422,17 @@ function getHTTPSCertificateWithAcme(){
             export CF_Key="${cf_key}"
             acmeSSLDNSProvider="dns_cf"
         fi
-        
+
         echo
-        ${configSSLAcmeScriptPath}/acme.sh --issue -d "${configSSLDomain}" --dns ${acmeSSLDNSProvider} --force --keylength ec-256 --server ${acmeSSLServerName} --debug 
-        
+        ${configSSLAcmeScriptPath}/acme.sh --issue -d "${configSSLDomain}" --dns ${acmeSSLDNSProvider} --force --keylength ec-256 --server ${acmeSSLServerName} --debug
+
     fi
 
     echo
     if [[ ${isAcmeSSLWebrootModeInput} == "1" ]]; then
         ${configSSLAcmeScriptPath}/acme.sh --installcert --ecc -d ${configSSLDomain} \
         --key-file ${configSSLCertPath}/${configSSLCertKeyFilename} \
-        --fullchain-file ${configSSLCertPath}/${configSSLCertFullchainFilename} 
+        --fullchain-file ${configSSLCertPath}/${configSSLCertFullchainFilename}
     else
         ${configSSLAcmeScriptPath}/acme.sh --installcert --ecc -d ${configSSLDomain} \
         --key-file ${configSSLCertPath}/${configSSLCertKeyFilename} \
@@ -1458,7 +1463,7 @@ function compareRealIpWithLocalIp(){
             #configNetworkLocalIp4="$(curl https://v4.ident.me/)"
             #configNetworkLocalIp5="$(curl https://api.ip.sb/ip)"
             #configNetworkLocalIp6="$(curl https://ipinfo.io/ip)"
-            
+
             #configNetworkLocalIPv61="$(curl https://ipv6.icanhazip.com/)"
             #configNetworkLocalIPv62="$(curl https://v6.ident.me/)"
 
@@ -1478,12 +1483,12 @@ function compareRealIpWithLocalIp(){
                 false
             fi
         else
-            green " ================================================== "        
+            green " ================================================== "
             red "     域名输入错误!"
-            green " ================================================== "        
+            green " ================================================== "
             false
         fi
-        
+
     else
         green " ================================================== "
         green "     不检测域名解析是否正确!"
@@ -1508,7 +1513,7 @@ function getHTTPSCertificateStep1(){
     green " ================================================== "
     yellow " 请输入绑定到本VPS的域名 例如www.xxx.com: (此步骤请关闭CDN后和nginx后安装 避免80端口占用导致申请证书失败)"
     read -r -p "请输入解析到本VPS的域名:" configSSLDomain
-    
+
     if compareRealIpWithLocalIp "${configSSLDomain}" ; then
         echo
         green " =================================================="
@@ -1522,7 +1527,7 @@ function getHTTPSCertificateStep1(){
         isDomainSSLRequestInput=${isDomainSSLRequestInput:-Y}
 
         if [[ $isDomainSSLRequestInput == [Yy] ]]; then
-            
+
             getHTTPSCertificateWithAcme ""
 
             if test -s "${configSSLCertPath}/${configSSLCertFullchainFilename}"; then
@@ -1649,11 +1654,11 @@ function installAlist(){
     green " 请选择 安装/更新/删除 Alist "
     green " 1. 安装 Alist "
     green " 2. 安装 Alist + Nginx (需要域名 并已解析到本机IP)"
-    green " 3. 更新 Alist"  
-    red " 4. 卸载 Alist"     
+    green " 3. 更新 Alist"
+    red " 4. 卸载 Alist"
     echo
     read -r -p "请输入纯数字, 默认为安装:" languageInput
-    
+
     createUserWWW
 
     case "${languageInput}" in
@@ -1661,13 +1666,13 @@ function installAlist(){
             curl -fsSL "https://alist.nn.ci/v3.sh" | bash -s install
             # sed -i "/^\[Service\]/a \User=www-data" ${configAlistSystemdServicePath}
             ${sudoCmd} systemctl daemon-reload
-            ${sudoCmd} systemctl restart alist       
+            ${sudoCmd} systemctl restart alist
         ;;
         2 )
             curl -fsSL "https://alist.nn.ci/v3.sh" | bash -s install
             # sed -i "/^\[Service\]/a \User=www-data" ${configAlistSystemdServicePath}
             ${sudoCmd} systemctl daemon-reload
-            ${sudoCmd} systemctl restart alist    
+            ${sudoCmd} systemctl restart alist
 
             green " ================================================== "
             echo
@@ -1703,7 +1708,7 @@ function installAlist(){
 function installAlistCert(){
         configSSLCertPath="${configSSLCertPath}/alist"
         getHTTPSCertificateStep1
-}   
+}
 
 
 
@@ -1740,7 +1745,7 @@ function createUserWWW(){
 	isHaveWwwUser=$(cat /etc/passwd | cut -d ":" -f 1 | grep ^${wwwUsername}$)
 	if [ "${isHaveWwwUser}" != "${wwwUsername}" ]; then
 		${sudoCmd} groupadd ${wwwUsername}
-		${sudoCmd} useradd -s /usr/sbin/nologin -g ${wwwUsername} ${wwwUsername} --no-create-home         
+		${sudoCmd} useradd -s /usr/sbin/nologin -g ${wwwUsername} ${wwwUsername} --no-create-home
 	fi
 }
 function createNewUserNologin(){
@@ -1756,7 +1761,7 @@ function createNewUser(){
         if [ "$osRelease" == "centos" ]; then
             usermod -aG wheel ${newUsername}
         else
-            usermod -aG sudo ${newUsername} 
+            usermod -aG sudo ${newUsername}
         fi
     fi
 }
@@ -1787,7 +1792,7 @@ function installCloudreve(){
     green " ================================================== "
 
     getVPSIP
-    
+
     mkdir -p ${configCloudreveDownloadCodeFolder}
     mkdir -p ${configCloudreveCommandFolder}
     cd ${configCloudrevePath}
@@ -1796,7 +1801,7 @@ function installCloudreve(){
     # https://github.com/cloudreve/Cloudreve/releases/download/3.8.1/cloudreve_3.8.1_linux_amd64.tar.gz
     # https://github.com/cloudreve/Cloudreve/releases/download/3.4.2/cloudreve_3.8.1_linux_arm.tar.gz
     # https://github.com/cloudreve/Cloudreve/releases/download/3.4.2/cloudreve_3.8.1_linux_arm64.tar.gz
-    
+
 
     downloadFilenameCloudreve="cloudreve_${versionCloudreve}_linux_amd64.tar.gz"
     if [[ ${osArchitecture} == "arm" ]] ; then
@@ -1869,7 +1874,7 @@ EOF
     green " Cloudreve INI 配置文件路径: ${configCloudreveIni}"
     green " Cloudreve 默认SQLite 数据库文件路径: ${configCloudreveCommandFolder}/cloudreve.db"
     green " Cloudreve readme 账号密码文件路径: ${configCloudreveReadme}"
-    
+
 
     cat ${configCloudreveReadme}
     green " ================================================== "
@@ -1881,7 +1886,7 @@ EOF
     read -p "是否安装 Nginx web服务器? 直接回车默认安装, 请输入[Y/n]:" isNginxInstallInput
     isNginxInstallInput=${isNginxInstallInput:-Y}
     echo
-    
+
     if [[ "${isNginxInstallInput}" == [Yy] ]]; then
         # ${configCloudreveCommandFolder}/cloudreve -eject
 
@@ -1922,10 +1927,10 @@ function removeCloudreve(){
             rm -rf ${configCloudrevePath}
             rm -f ${osSystemMdPath}cloudreve.service
             rm -f "${nginxConfigSiteConfPath}/cloudreve_site.conf"
-            
+
             systemctl restart nginx.service
             showHeaderGreen "  Cloudreve removed !"
-            
+
         else
             showHeaderRed " Cloudreve not found !"
         fi
@@ -2021,10 +2026,10 @@ function installWebServerNginx(){
 
         # 解决出现的nginx warning 错误 Failed to parse PID from file /run/nginx.pid: Invalid argument
         # https://www.kancloud.cn/tinywan/nginx_tutorial/753832
-        
+
         mkdir -p /etc/systemd/system/nginx.service.d
         printf "[Service]\nExecStartPost=/bin/sleep 0.1\n" > /etc/systemd/system/nginx.service.d/override.conf
-        
+
         ${sudoCmd} systemctl daemon-reload
 
     fi
@@ -2044,11 +2049,11 @@ function installWebServerNginx(){
 
     if [[ "${configInstallNginxMode}" == "airuniverse" ]]; then
         configV2rayWebSocketPath=$(cat /dev/urandom | head -1 | md5sum | head -c 8)
-        
+
         echo
         read -r -p "是否自定义xray的 Websocket 的Path? 直接回车默认创建随机路径, 请输入自定义路径(不要输入/):" isV2rayUserWSPathInput
         isV2rayUserWSPathInput=${isV2rayUserWSPathInput:-${configV2rayWebSocketPath}}
-        
+
         if [[ -z $isV2rayUserWSPathInput ]]; then
             echo
         else
@@ -2064,8 +2069,9 @@ function installWebServerNginx(){
         cat > "${nginxConfigSiteConfPath}/airuniverse.conf" <<-EOF
 
     server {
-        listen 443 ssl http2;
-        listen [::]:443 http2;
+        listen 443 ssl;
+        listen [::]:443 ssl;
+        # http2  on;
         server_name  $configSSLDomain;
 
         ssl_certificate       ${configSSLCertPath}/$configSSLCertFullchainFilename;
@@ -2078,7 +2084,7 @@ function installWebServerNginx(){
         ssl_stapling on;
         ssl_stapling_verify on;
         add_header Strict-Transport-Security "max-age=31536000";
-        
+
         root $configWebsitePath;
         index index.php index.html index.htm;
 
@@ -2098,6 +2104,15 @@ function installWebServerNginx(){
         server_name  $configSSLDomain;
         root $configWebsitePath;
         index index.php index.html index.htm;
+
+        location ^~ /.well-known/acme-challenge/ {
+            default_type "text/plain";
+            allow all;
+            root $configWebsitePath;
+        }
+        location = /.well-known/acme-challenge/ {
+            return 404;
+        }
     }
 
 EOF
@@ -2107,8 +2122,9 @@ EOF
         cat > "${nginxConfigSiteConfPath}/ghost_site.conf" <<-EOF
 
     server {
-        listen 443 ssl http2;
-        listen [::]:443 http2;
+        listen 443 ssl;
+        listen [::]:443 ssl;
+        # http2  on;
         server_name  $configSSLDomain;
 
         ssl_certificate       ${configSSLCertPath}/$configSSLCertFullchainFilename;
@@ -2121,7 +2137,7 @@ EOF
         ssl_stapling on;
         ssl_stapling_verify on;
         add_header Strict-Transport-Security "max-age=31536000";
-        
+
         root $configWebsitePath;
         index index.php index.html index.htm;
 
@@ -2145,16 +2161,21 @@ EOF
         root ${configGhostSitePath}/system/nginx-root; # Used for acme.sh SSL verification (https://acme.sh)
         index index.php index.html index.htm;
 
+        location ^~ /.well-known/acme-challenge/ {
+            default_type "text/plain";
+            allow all;
+            root ${configGhostSitePath}/system/nginx-root;
+        }
+        location = /.well-known/acme-challenge/ {
+            return 404;
+        }
+
         location / {
             proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
             proxy_set_header X-Forwarded-Proto \$scheme;
             proxy_set_header X-Real-IP \$remote_addr;
             proxy_set_header Host \$http_host;
             proxy_pass http://127.0.0.1:3468;
-        }
-
-        location ~ /.well-known {
-            allow all;
         }
 
         client_max_body_size 50m;
@@ -2175,8 +2196,9 @@ EOF
         cat > "${nginxConfigSiteConfPath}/cloudreve_site.conf" <<-EOF
 
     server {
-        listen 443 ssl http2;
-        listen [::]:443 http2;
+        listen 443 ssl;
+        listen [::]:443 ssl;
+        # http2  on;
         server_name  $configSSLDomain;
 
         ssl_certificate       ${configSSLCertPath}/$configSSLCertFullchainFilename;
@@ -2189,7 +2211,7 @@ EOF
         ssl_stapling on;
         ssl_stapling_verify on;
         add_header Strict-Transport-Security "max-age=31536000";
-        
+
         root $configWebsitePath;
         index index.php index.html index.htm;
 
@@ -2209,6 +2231,18 @@ EOF
         listen 80;
         listen [::]:80;
         server_name  $configSSLDomain;
+        root $configWebsitePath;
+        index index.php index.html index.htm;
+
+        location ^~ /.well-known/acme-challenge/ {
+            default_type "text/plain";
+            allow all;
+            root $configWebsitePath;
+        }
+        location = /.well-known/acme-challenge/ {
+            return 404;
+        }
+
         return 301 https://$configSSLDomain\$request_uri;
     }
 
@@ -2224,8 +2258,9 @@ EOF
         cat > "${nginxConfigSiteConfPath}/alist_site.conf" <<-EOF
 
     server {
-        listen 443 ssl http2;
-        listen [::]:443 http2;
+        listen 443 ssl;
+        listen [::]:443 ssl;
+        # http2  on;
         server_name  $configSSLDomain;
 
         ssl_certificate       ${configSSLCertPath}/$configSSLCertFullchainFilename;
@@ -2238,7 +2273,7 @@ EOF
         ssl_stapling on;
         ssl_stapling_verify on;
         add_header Strict-Transport-Security "max-age=31536000";
-        
+
         root $configWebsitePath;
         index index.php index.html index.htm;
 
@@ -2263,6 +2298,17 @@ EOF
         listen 80;
         listen [::]:80;
         server_name  $configSSLDomain;
+        root $configWebsitePath;
+        index index.php index.html index.htm;
+
+        location ^~ /.well-known/acme-challenge/ {
+            default_type "text/plain";
+            allow all;
+            root $configWebsitePath;
+        }
+        location = /.well-known/acme-challenge/ {
+            return 404;
+        }
         return 301 https://$configSSLDomain\$request_uri;
     }
 
@@ -2272,8 +2318,9 @@ EOF
         cat > "${nginxConfigSiteConfPath}/grist_site.conf" <<-EOF
 
     server {
-        listen 443 ssl http2;
-        listen [::]:443 http2;
+        listen 443 ssl;
+        listen [::]:443 ssl;
+        # http2  on;
         server_name  $configSSLDomain;
 
         ssl_certificate       ${configSSLCertPath}/$configSSLCertFullchainFilename;
@@ -2286,12 +2333,11 @@ EOF
         ssl_stapling on;
         ssl_stapling_verify on;
         add_header Strict-Transport-Security "max-age=31536000";
-        
+
         root $configWebsitePath;
         index index.php index.html index.htm;
 
         location / {
-
             proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
             proxy_set_header X-Real-IP \$remote_addr;
             proxy_set_header Host \$http_host;
@@ -2307,6 +2353,17 @@ EOF
         listen 80;
         listen [::]:80;
         server_name  $configSSLDomain;
+        root $configWebsitePath;
+        index index.php index.html index.htm;
+
+        location ^~ /.well-known/acme-challenge/ {
+            default_type "text/plain";
+            allow all;
+            root $configWebsitePath;
+        }
+        location = /.well-known/acme-challenge/ {
+            return 404;
+        }
         return 301 https://$configSSLDomain\$request_uri;
     }
 EOF
@@ -2316,8 +2373,9 @@ EOF
         cat > "${nginxConfigSiteConfPath}/nocodb_site.conf" <<-EOF
 
     server {
-        listen 443 ssl http2;
-        listen [::]:443 http2;
+        listen 443 ssl;
+        listen [::]:443 ssl;
+        # http2  on;
         server_name  $configSSLDomain;
 
         ssl_certificate       ${configSSLCertPath}/$configSSLCertFullchainFilename;
@@ -2330,12 +2388,11 @@ EOF
         ssl_stapling on;
         ssl_stapling_verify on;
         add_header Strict-Transport-Security "max-age=31536000";
-        
+
         root $configWebsitePath;
         index index.php index.html index.htm;
 
         location / {
-
             proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
             proxy_set_header X-Real-IP \$remote_addr;
             proxy_set_header Host \$http_host;
@@ -2343,7 +2400,6 @@ EOF
             proxy_set_header If-Range \$http_if_range;
             proxy_redirect off;
             proxy_pass http://127.0.0.1:8080;
-
         }
     }
 
@@ -2351,6 +2407,17 @@ EOF
         listen 80;
         listen [::]:80;
         server_name  $configSSLDomain;
+        root $configWebsitePath;
+        index index.php index.html index.htm;
+
+        location ^~ /.well-known/acme-challenge/ {
+            default_type "text/plain";
+            allow all;
+            root $configWebsitePath;
+        }
+        location = /.well-known/acme-challenge/ {
+            return 404;
+        }
         return 301 https://$configSSLDomain\$request_uri;
     }
 EOF
@@ -2360,8 +2427,9 @@ EOF
         cat > "${nginxConfigSiteConfPath}/etherpad_site.conf" <<-EOF
 
     server {
-        listen 443 ssl http2;
-        listen [::]:443 http2;
+        listen 443 ssl;
+        listen [::]:443 ssl;
+        # http2  on;
         server_name  $configSSLDomain;
 
         ssl_certificate       ${configSSLCertPath}/$configSSLCertFullchainFilename;
@@ -2374,12 +2442,11 @@ EOF
         ssl_stapling on;
         ssl_stapling_verify on;
         add_header Strict-Transport-Security "max-age=31536000";
-        
+
         root $configWebsitePath;
         index index.php index.html index.htm;
 
         location / {
-
             proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
             proxy_set_header X-Real-IP \$remote_addr;
             proxy_set_header Host \$http_host;
@@ -2395,6 +2462,17 @@ EOF
         listen 80;
         listen [::]:80;
         server_name  $configSSLDomain;
+        root $configWebsitePath;
+        index index.php index.html index.htm;
+
+        location ^~ /.well-known/acme-challenge/ {
+            default_type "text/plain";
+            allow all;
+            root $configWebsitePath;
+        }
+        location = /.well-known/acme-challenge/ {
+            return 404;
+        }
         return 301 https://$configSSLDomain\$request_uri;
     }
 EOF
@@ -2404,8 +2482,9 @@ EOF
         cat > "${nginxConfigSiteConfPath}/joplin_site.conf" <<-EOF
 
     server {
-        listen 443 ssl http2;
-        listen [::]:443 http2;
+        listen 443 ssl;
+        listen [::]:443 ssl;
+        # http2  on;
         server_name  $configSSLDomain;
 
         ssl_certificate       ${configSSLCertPath}/$configSSLCertFullchainFilename;
@@ -2418,12 +2497,11 @@ EOF
         ssl_stapling on;
         ssl_stapling_verify on;
         add_header Strict-Transport-Security "max-age=31536000";
-        
+
         root $configWebsitePath;
         index index.php index.html index.htm;
 
         location / {
-
             proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
             proxy_set_header X-Real-IP \$remote_addr;
             proxy_set_header Host \$http_host;
@@ -2439,6 +2517,17 @@ EOF
         listen 80;
         listen [::]:80;
         server_name  $configSSLDomain;
+        root $configWebsitePath;
+        index index.php index.html index.htm;
+
+        location ^~ /.well-known/acme-challenge/ {
+            default_type "text/plain";
+            allow all;
+            root $configWebsitePath;
+        }
+        location = /.well-known/acme-challenge/ {
+            return 404;
+        }
         return 301 https://$configSSLDomain\$request_uri;
     }
 EOF
@@ -2447,8 +2536,9 @@ EOF
         cat > "${nginxConfigSiteConfPath}/affine_site.conf" <<-EOF
 
     server {
-        listen 443 ssl http2;
-        listen [::]:443 http2;
+        listen 443 ssl;
+        listen [::]:443 ssl;
+        # http2  on;
         server_name  $configSSLDomain;
 
         ssl_certificate       ${configSSLCertPath}/$configSSLCertFullchainFilename;
@@ -2461,12 +2551,11 @@ EOF
         ssl_stapling on;
         ssl_stapling_verify on;
         add_header Strict-Transport-Security "max-age=31536000";
-        
+
         root $configWebsitePath;
         index index.php index.html index.htm;
 
         location / {
-
             proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
             proxy_set_header X-Real-IP \$remote_addr;
             proxy_set_header Host \$http_host;
@@ -2482,6 +2571,17 @@ EOF
         listen 80;
         listen [::]:80;
         server_name  $configSSLDomain;
+        root $configWebsitePath;
+        index index.php index.html index.htm;
+
+        location ^~ /.well-known/acme-challenge/ {
+            default_type "text/plain";
+            allow all;
+            root $configWebsitePath;
+        }
+        location = /.well-known/acme-challenge/ {
+            return 404;
+        }
         return 301 https://$configSSLDomain\$request_uri;
     }
 EOF
@@ -2496,8 +2596,9 @@ EOF
     }
 
     server {
-        listen 443 ssl http2;
-        listen [::]:443 http2;
+        listen 443 ssl;
+        listen [::]:443 ssl;
+        # http2  on;
         server_name  $configSSLDomain;
 
         ssl_certificate       ${configSSLCertPath}/$configSSLCertFullchainFilename;
@@ -2510,7 +2611,7 @@ EOF
         ssl_stapling on;
         ssl_stapling_verify on;
         add_header Strict-Transport-Security "max-age=31536000";
-        
+
         root $configWebsitePath;
         index index.php index.html index.htm;
 
@@ -2563,7 +2664,137 @@ EOF
         listen 80;
         listen [::]:80;
         server_name  $configSSLDomain;
+        root $configWebsitePath;
+        index index.php index.html index.htm;
+
+        location ^~ /.well-known/acme-challenge/ {
+            default_type "text/plain";
+            allow all;
+            root $configWebsitePath;
+        }
+        location = /.well-known/acme-challenge/ {
+            return 404;
+        }
         return 301 https://$configSSLDomain\$request_uri;
+    }
+EOF
+
+
+    elif [[ "${configInstallNginxMode}" == "freegpt35" ]]; then
+        cat > "${nginxConfigSiteConfPath}/freegpt35_site.conf" <<-EOF
+
+    upstream freegptapi {
+        server 127.0.0.1:${configAurora_PORT};
+        server 127.0.0.1:${configFreegpt35_PORT};
+    }
+    upstream freegptnextweb {
+        server 127.0.0.1:${configChatGPTNextWeb_PORT};
+    }
+
+    server {
+        listen 443 ssl;
+        listen [::]:443 ssl;
+        # http2  on;
+        server_name  $configSSLDomain;
+
+        ssl_certificate       ${configSSLCertPath}/$configSSLCertFullchainFilename;
+        ssl_certificate_key   ${configSSLCertPath}/$configSSLCertKeyFilename;
+        ssl_protocols         TLSv1.2 TLSv1.3;
+        ssl_ciphers           TLS-AES-256-GCM-SHA384:TLS-CHACHA20-POLY1305-SHA256:TLS-AES-128-GCM-SHA256:TLS-AES-128-CCM-8-SHA256:TLS-AES-128-CCM-SHA256:ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-GCM-SHA384:ECDHE-ECDSA-CHACHA20-POLY1305:ECDHE-RSA-CHACHA20-POLY1305:ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-GCM-SHA256:ECDHE-ECDSA-AES256-SHA384:ECDHE-RSA-AES256-SHA384:ECDHE-ECDSA-AES128-SHA256:ECDHE-RSA-AES128-SHA256;
+
+        # Config for 0-RTT in TLSv1.3
+        ssl_early_data on;
+        ssl_stapling on;
+        ssl_stapling_verify on;
+        add_header Strict-Transport-Security "max-age=31536000";
+
+        root $configWebsitePath;
+        index index.php index.html index.htm;
+
+        location / {
+            proxy_set_header Range \$http_range;
+            proxy_set_header If-Range \$http_if_range;
+            proxy_redirect off;
+
+            client_max_body_size 50M;
+            proxy_set_header Connection "upgrade";
+            proxy_set_header Host \$http_host;
+            proxy_set_header X-Real-IP \$remote_addr;
+            proxy_set_header REMOTE-HOST \$remote_addr;
+            proxy_set_header Upgrade \$http_upgrade;
+            proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-Proto \$scheme;
+            proxy_set_header X-Frame-Options SAMEORIGIN;
+            proxy_buffers 256 16k;
+            proxy_buffer_size 16k;
+            proxy_read_timeout 600s;
+            proxy_cache_revalidate on;
+            proxy_cache_min_uses 2;
+            proxy_cache_use_stale timeout;
+            proxy_cache_lock on;
+            proxy_http_version 1.1;
+            proxy_pass http://freegptnextweb;
+
+            add_header Cache-Control no-cache;
+            proxy_cache off;
+            proxy_buffering off;
+            chunked_transfer_encoding on;
+            tcp_nopush on;
+            tcp_nodelay on;
+            keepalive_timeout 300;
+
+        }
+
+    }
+
+    server {
+        listen 80;
+        listen [::]:80;
+        server_name  $configSSLDomain;
+        root $configWebsitePath;
+        index index.php index.html index.htm;
+
+        location ^~ /.well-known/acme-challenge/ {
+            default_type "text/plain";
+            allow all;
+            root $configWebsitePath;
+        }
+        location = /.well-known/acme-challenge/ {
+            return 404;
+        }
+        location / {
+            proxy_set_header Range \$http_range;
+            proxy_set_header If-Range \$http_if_range;
+            proxy_redirect off;
+
+            client_max_body_size 50M;
+            proxy_set_header Connection "upgrade";
+            proxy_set_header Host \$http_host;
+            proxy_set_header X-Real-IP \$remote_addr;
+            proxy_set_header REMOTE-HOST \$remote_addr;
+            proxy_set_header Upgrade \$http_upgrade;
+            proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-Proto \$scheme;
+            proxy_set_header X-Frame-Options SAMEORIGIN;
+            proxy_buffers 256 16k;
+            proxy_buffer_size 16k;
+            proxy_read_timeout 600s;
+            proxy_cache_revalidate on;
+            proxy_cache_min_uses 2;
+            proxy_cache_use_stale timeout;
+            proxy_cache_lock on;
+            proxy_http_version 1.1;
+            proxy_pass http://freegptapi;
+
+            add_header Cache-Control no-cache;
+            proxy_cache off;
+            proxy_buffering off;
+            chunked_transfer_encoding on;
+            tcp_nopush on;
+            tcp_nodelay on;
+            keepalive_timeout 300;
+
+        }
     }
 EOF
 
@@ -2608,8 +2839,8 @@ http {
     client_body_temp_path ${nginxTempPath}/client_body 1 2;
 
     ${nginxConfigServerHttpInput}
-    
-    include ${nginxConfigSiteConfPath}/*.conf; 
+
+    include ${nginxConfigSiteConfPath}/*.conf;
 }
 
 EOF
@@ -2631,7 +2862,7 @@ EOF
 
     ${sudoCmd} chown -R ${wwwUsername}:${wwwUsername} ${nginxProxyTempPath}
     ${sudoCmd} chmod -R 775 ${nginxProxyTempPath}
-    
+
     ${sudoCmd} systemctl start nginx.service
 
     echo
@@ -2682,7 +2913,7 @@ function removeNginx(){
 
         echo
         if [[ -f "${nginxConfigPath}" ]]; then
-        
+
             showHeaderRed "准备卸载已安装的nginx"
 
             ${sudoCmd} systemctl stop nginx.service
@@ -2709,18 +2940,18 @@ function removeNginx(){
             rm -rf ${nginxConfigSiteConfPath}
 
             rm -rf "/etc/nginx"
-            
+
             rm -rf ${configDownloadTempPath}
 
             echo
             read -r -p "是否删除证书 和 卸载acme.sh申请证书工具, 由于一天内申请证书有次数限制, 默认建议不删除证书,  请输入[y/N]:" isDomainSSLRemoveInput
             isDomainSSLRemoveInput=${isDomainSSLRemoveInput:-n}
 
-            
+
             if [[ $isDomainSSLRemoveInput == [Yy] ]]; then
                 rm -rf ${configWebsiteFatherPath}
                 ${sudoCmd} bash ${configSSLAcmeScriptPath}/acme.sh --uninstall
-                
+
                 showHeaderGreen "Nginx 卸载完毕, SSL 证书文件已删除!"
 
             else
@@ -2733,7 +2964,7 @@ function removeNginx(){
         fi
         echo
 
-    fi    
+    fi
 }
 
 
@@ -2787,8 +3018,178 @@ function removeNginx(){
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+configGhostProjectPath="/opt/ghost"
+configGhostDockerPath="/opt/ghost/docker"
+configGhostSitePath="/opt/ghost/site"
+ghostUser="ghostsite"
+
+function installCMSGhost(){
+    if [[ -d "${configGhostDownloadPath}" ]]; then
+        showHeaderRed "Ghost already installed !"
+        exit
+    fi
+    showHeaderGreen "Prepare to install Ghost !"
+
+    if ! command -v npm &> /dev/null ; then
+        showHeaderRed "Npm could not be found, Please install Nodejs first !"
+        exit
+    fi
+
+    isInstallNginx="true"
+    configSSLCertPath="${configSSLCertPath}/ghost"
+    getHTTPSCertificateStep1
+    configInstallNginxMode="ghost"
+    installWebServerNginx
+
+
+
+    createNewUser "${ghostUser}"
+    # passwd "${ghostUser}" ghost2022user
+
+    # https://stackoverflow.com/questions/714915/using-the-passwd-command-from-within-a-shell-script
+    echo "ghost2022user" | passwd "${ghostUser}" --stdin
+    red " Password for linux user ghostsite: ghost2022user"
+    echo
+
+    ${sudoCmd} mkdir -p "${configGhostSitePath}"
+
+    ${sudoCmd} chown -R ${ghostUser}:${ghostUser} "${configGhostProjectPath}"
+    ${sudoCmd} chmod -R 775  "${configGhostProjectPath}"
+
+    cd "${configGhostSitePath}" || exit
+    ${sudoCmd} npm install ghost-cli@latest -g
+
+    # su - "ghost" -c cd "${configGhostSitePath}"
+
+    su - ${ghostUser} << EOF
+    echo "--------------------"
+    echo "Current user:"
+    whoami
+    echo
+    cd "${configGhostSitePath}"
+    ghost install --port 3468 --db=sqlite3 --no-setup-nginx --no-setup-ssl --no-setup-mysql --no-stack --no-prompt --dir ${configGhostSitePath} --url https://${configSSLDomain}
+    echo "--------------------"
+EOF
+
+    echo
+    echo "Current user: $(whoami)"
+    echo
+
+    showHeaderGreen "Ghost installed successfully! " \
+    "Ghost Admin panel:  http://localhost:3468/ghost" \
+    "The SQLite3 database located in ${configGhostSitePath}/content/data"
+
+    showHeaderGreen " Please manually run following command if installation failed: " \
+    "su - ${ghostUser}" \
+    "cd ${configGhostSitePath}" \
+    "ghost install --port 3468 --db=sqlite3 --no-setup-nginx --no-setup-ssl --no-setup-mysql --no-stack --no-prompt --dir ${configGhostSitePath} --url https://${configSSLDomain}"
+    red "Input password 'ghost2022user' when ask for linux user 'ghostsite' password"
+
+
+        read -r -d '' ghostConfigEmailInput << EOM
+    "mail": {
+      "from": "annajscool@freair.com",
+      "transport": "SMTP",
+      "options": {
+        "host": "smtp.gmail.com",
+        "service": "Gmail",
+        "port": "465",
+        "secure": true,
+        "auth": {
+          "user": "jinwyp2@gmail.com",
+          "pass": "aslgotjzmwrkuvto"
+        }
+      }
+    },
+EOM
+
+
+}
+
+
+function removeCMSGhost(){
+    echo
+    read -r -p "是否确认卸载Ghost? 直接回车默认卸载, 请输入[Y/n]:" isRemoveGhostInput
+    isRemoveGhostInput=${isRemoveGhostInput:-Y}
+
+    if [[ "${isRemoveGhostInput}" == [Yy] ]]; then
+
+        echo
+        if [[ -d "${configGhostSitePath}" ]]; then
+
+            showHeaderGreen "准备卸载已安装的 Ghost"
+
+    su - ${ghostUser} << EOF
+    echo "--------------------"
+    echo "Current user:"
+    whoami
+    echo
+    cd "${configGhostSitePath}"
+    ghost stop
+    ghost uninstall
+    echo "--------------------"
+EOF
+
+            userdel -r "${ghostUser}"
+
+            rm -rf "${configGhostSitePath}"
+            rm -f "${nginxConfigSiteConfPath}/ghost_site.conf"
+
+            systemctl restart nginx.service
+            showHeaderGreen "已成功卸载 Ghost !"
+        else
+            showHeaderRed "系统没有安装 Ghost, 退出卸载"
+        fi
+
+    fi
+    removeNginx
+
+}
+
+function testCMSGhost(){
+                su - ghostsite << EOF
+    echo "--------------------"
+    echo "Current user: $(whoami)"
+    whoami
+    $(whoami)
+    # ghost install --port 3468 --db=sqlite3 --no-prompt --dir ${configGhostSitePath} --url https://${configSSLDomain}
+    echo "--------------------"
+EOF
+whoami
+sudo -u ghostsite bash << EOF
+echo "In"
+whoami
+EOF
+echo "Out"
+whoami
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
 configEtherpadProjectPath="${HOME}/etherpad"
 configEtherpadDockerPath="${HOME}/etherpad/docker"
+configEtherpadDockerComposeFilePath="${HOME}/etherpad/docker/docker-compose.yml"
 
 # Online collaborative Document
 function installEtherpad(){
@@ -2808,7 +3209,6 @@ function installEtherpad(){
     docker pull etherpad/etherpad
 
 
-
     read -r -p "请输入Admin的密码 (默认为admin):" configEtherpadPasswordInput
     configEtherpadPasswordInput=${configEtherpadPasswordInput:-admin}
     echo
@@ -2825,6 +3225,34 @@ function installEtherpad(){
     echo "docker run -d -p 9001:9001 -e ADMIN_PASSWORD=${configEtherpadPasswordInput} --name etherpad etherpad/etherpad"
     echo
 
+
+    cat > "${configEtherpadDockerComposeFilePath}" <<-EOF
+
+version: '3'
+
+services:
+    etherpad:
+        image: etherpad/etherpad:latest
+        container_name: etherpad
+        volumes:
+            - ${configEtherpadDockerPath}/data:/opt/etherpad-lite/var
+        ports:
+            - "9001:9001"
+        restart: unless-stopped
+        environment:
+            - SUPPRESS_ERRORS_IN_PAD_TEXT=true
+            - ADMIN_PASSWORD=1234562024
+            - DEFAULT_PAD_TEXT=Welcome to Etherpad Lite!
+        networks:
+            meet.jitsi:
+                aliases:
+                    - etherpad.meet.jitsi
+EOF
+
+    # docker-compose up -d
+
+
+
     if [[ "${isNginxInstallInput}" == [Yy] ]]; then
         isInstallNginx="true"
         configSSLCertPath="${configSSLCertPath}/etherpad"
@@ -2836,12 +3264,12 @@ function installEtherpad(){
 
         ${sudoCmd} systemctl restart nginx.service
         showHeaderGreen "Etherpad install success !  https://${configSSLDomain}" \
-        "Admin panel: https://${configSSLDomain}/admin   User: admin, Password: ${configEtherpadPasswordInput}" 
+        "Admin panel: https://${configSSLDomain}/admin   User: admin, Password: ${configEtherpadPasswordInput}"
     else
         docker run -d -p 9001:9001 -e 'ADMIN_PASSWORD=${configEtherpadPasswordInput}' -v ${configEtherpadDockerPath}/data:/opt/etherpad-lite/var --name etherpad etherpad/etherpad
 
         showHeaderGreen "Etherpad install success !  http://your_ip:9001/" \
-        "Admin panel: http://your_ip:9001/admin  User: admin, Password: ${configEtherpadPasswordInput}" 
+        "Admin panel: http://your_ip:9001/admin  User: admin, Password: ${configEtherpadPasswordInput}"
     fi
 }
 
@@ -2851,10 +3279,8 @@ function removeEtherpad(){
     isRemoveEtherpadInput=${isRemoveEtherpadInput:-Y}
 
     if [[ "${isRemoveEtherpadInput}" == [Yy] ]]; then
-
-        echo
         if [[ -d "${configEtherpadDockerPath}" ]]; then
-
+            echo
             showHeaderGreen "准备卸载已安装的 Etherpad"
 
             dockerIDEtherpad=$(docker ps -a -q --filter ancestor=etherpad/etherpad --format="{{.ID}}")
@@ -2864,11 +3290,13 @@ function removeEtherpad(){
             fi
 
             rm -rf "${configEtherpadProjectPath}"
-            rm -f "${nginxConfigSiteConfPath}/etherpad_site.conf"
-            
-            systemctl restart nginx.service
+            if [[ -f "${nginxConfigSiteConfPath}/etherpad_site.conf" ]]; then
+                rm -f "${nginxConfigSiteConfPath}/etherpad_site.conf"
+                systemctl restart nginx.service
+            fi
+
             showHeaderGreen "已成功卸载 Etherpad Docker 版本 !"
-            
+
         else
             showHeaderRed "系统没有安装 Etherpad, 退出卸载"
         fi
@@ -2922,11 +3350,11 @@ function installNocoDB(){
         docker run -d --name nocodb -p 8080:8080 -v ${configNocoDBDockerPath}/data:/usr/app/data/ nocodb/nocodb:latest
 
         ${sudoCmd} systemctl restart nginx.service
-        showHeaderGreen "NocoDB install success !  https://${configSSLDomain}" 
+        showHeaderGreen "NocoDB install success !  https://${configSSLDomain}"
     else
         docker run -d --name nocodb -p 8080:8080 -v ${configNocoDBDockerPath}/data:/usr/app/data/ nocodb/nocodb:latest
 
-        showHeaderGreen "NocoDB install success !  http://your_ip:8080/dashboard" 
+        showHeaderGreen "NocoDB install success !  http://your_ip:8080/dashboard"
     fi
 
 }
@@ -2950,10 +3378,10 @@ function removeNocoDB(){
 
             rm -rf "${configNocoDBProjectPath}"
             rm -f "${nginxConfigSiteConfPath}/nocodb_site.conf"
-            
+
             systemctl restart nginx.service
             showHeaderGreen "已成功卸载 NocoDB Docker 版本 !"
-            
+
         else
             showHeaderRed "系统没有安装 NocoDB, 退出卸载"
         fi
@@ -3018,12 +3446,12 @@ function installGrist(){
         -e GRIST_SESSION_SECRET=${configGristSecretKey} --env GRIST_DEFAULT_EMAIL=${configGristEmailInput} -e APP_HOME_URL="https://${configSSLDomain}"  gristlabs/grist
 
         ${sudoCmd} systemctl restart nginx.service
-        showHeaderGreen "Grist install success !  https://${configSSLDomain}" 
+        showHeaderGreen "Grist install success !  https://${configSSLDomain}"
     else
         docker run -d --name grist -p 8484:8484 -v ${configGristDockerPath}/persist:/persist -e GRIST_SANDBOX_FLAVOR=gvisor -e GRIST_SINGLE_ORG=${configGristTeamInput} \
         -e GRIST_SESSION_SECRET=${configGristSecretKey} --env GRIST_DEFAULT_EMAIL=${configGristEmailInput} gristlabs/grist
 
-        showHeaderGreen "Grist install success !  http://your_ip:8484" 
+        showHeaderGreen "Grist install success !  http://your_ip:8484"
     fi
 
 }
@@ -3048,7 +3476,7 @@ function removeGrist(){
 
             rm -rf "${configGristProjectPath}"
             rm -f "${nginxConfigSiteConfPath}/grist_site.conf"
-            
+
             systemctl restart nginx.service
             showHeaderGreen "已成功卸载 Grist Docker 版本 !"
         else
@@ -3058,6 +3486,15 @@ function removeGrist(){
 
     removeNginx
 }
+
+
+
+
+
+
+
+
+
 
 
 
@@ -3198,16 +3635,16 @@ EOF
 
         showHeaderGreen "Joplin Server install success !  https://${configSSLDomain}" \
         "POSTGRES_USER: ${configJoplin_PostgreSQLUSER}, POSTGRES_PASSWORD: ${configJoplin_PostgreSQLPASSWORD}" \
-        "Joplin_Admin_USER: admin@localhost, Joplin_Admin_PASSWORD: admin" \
-        "Joplin_Data Path : ${configJoplinDockerPath}" \
-        "Joplin Logs: docker-compose --file docker-compose.yml logs" 
+        "Joplin Admin_USER: admin@localhost, Joplin_Admin_PASSWORD: admin" \
+        "Joplin Data Path : ${configJoplinDockerPath}" \
+        "Joplin Logs: docker-compose logs -f -t "
     else
 
         showHeaderGreen "Joplin Server install success !  ${configJoplin_APP_BASE_URL}" \
         "POSTGRES_USER: ${configJoplin_PostgreSQLUSER}, POSTGRES_PASSWORD: ${configJoplin_PostgreSQLPASSWORD}" \
-        "Joplin_Admin_USER: admin@localhost, Joplin_Admin_PASSWORD: admin" \
-        "Joplin_Data Path : ${configJoplinDockerPath}" \
-        "Joplin Logs: docker-compose --file docker-compose.yml logs" 
+        "Joplin Admin_USER: admin@localhost, Joplin_Admin_PASSWORD: admin" \
+        "Joplin Data Path : ${configJoplinDockerPath}" \
+        "Joplin Logs: docker-compose logs -f -t "
     fi
 
 }
@@ -3228,14 +3665,14 @@ function removeJoplin(){
             showHeaderGreen "准备卸载已安装的 Joplin Server"
 
             cd ${configJoplinDockerPath} || exit
-            docker-compose down 
+            docker-compose down
 
             rm -rf "${configJoplinDockerPath}"
             rm -f "${nginxConfigSiteConfPath}/joplin_site.conf"
-            
+
             systemctl restart nginx.service
             showHeaderGreen "已成功卸载 Joplin Server 版本 !"
-            
+
         else
             showHeaderRed "系统没有安装 Joplin Server, 退出卸载"
         fi
@@ -3246,10 +3683,99 @@ function removeJoplin(){
 
 
 
+configLinkwardenDockerPath="${HOME}/linkwarden/docker"
+configLinkwardenDockerPostgresPath="${HOME}/linkwarden/docker/postgres_data"
+configLinkwardenDockerFileStoragePath="${HOME}/linkwarden/docker/data"
+configLinkwarden_PORT=4000
+
+function installLinkwarden(){
+    # https://docs.linkwarden.app/self-hosting/installation
+    if [[ -d "${configLinkwardenDockerPath}" ]]; then
+        showHeaderRed " Linkwarden already installed !"
+        exit
+    fi
+    showHeaderGreen "Start to install Linkwarden with docker"
+    ${sudoCmd} mkdir -p "${configLinkwardenDockerPath}"
+    ${sudoCmd} mkdir -p "${configLinkwardenDockerPostgresPath}"
+    ${sudoCmd} mkdir -p "${configLinkwardenDockerFileStoragePath}"
+
+    cd "${configLinkwardenDockerPath}" || exit
+
+    read -r -p "请输入 Linkwarden domain name (直接回车默认为localhost):" configLinkwarden_Domain
+    configLinkwarden_Domain=${configLinkwarden_Domain:-localhost}
+    echo
+    read -r -p "请输入 Linkwarden Server PORT (直接回车默认为4000):" configLinkwarden_PORT
+    configLinkwarden_PORT=${configLinkwarden_PORT:-4000}
+    echo
+    read -r -p "请输入PostgreSQL PASSWORD (直接回车默认为postgreuser2pw):" configLinkwarden_PostgreSQLPASSWORD
+    configLinkwarden_PostgreSQLPASSWORD=${configLinkwarden_PostgreSQLPASSWORD:-postgreuser2pw}
+    echo
+
+    NEXTAUTH_SECRET=$(cat /dev/urandom | head -1 | md5sum | head -c 10)
+
+    cat > "${configLinkwardenDockerPath}/.env" <<-EOF
+NEXTAUTH_SECRET=$NEXTAUTH_SECRET
+NEXTAUTH_URL=http://$configLinkwarden_Domain:$configLinkwarden_PORT
+POSTGRES_PASSWORD=$configLinkwarden_PostgreSQLPASSWORD
+
+EOF
+
+    cat > "${configLinkwardenDockerPath}/docker-compose.yml" <<-EOF
+version: "3.5"
+services:
+  linkwarden_postgres:
+    image: postgres:16-alpine
+    env_file: .env
+    restart: always
+    volumes:
+      - ${configLinkwardenDockerPostgresPath}:/var/lib/postgresql/data
+  linkwarden:
+    env_file: ${configLinkwardenDockerPath}/.env
+    environment:
+      - DATABASE_URL=postgresql://postgres:${configLinkwarden_PostgreSQLPASSWORD}@linkwarden_postgres:5432/postgres
+    restart: always
+    image: ghcr.io/linkwarden/linkwarden:latest
+    ports:
+      - ${configLinkwarden_PORT}:3000
+    volumes:
+      - ${configLinkwardenDockerFileStoragePath}:/data/data
+    depends_on:
+      - linkwarden_postgres
+EOF
+
+    docker compose up -d
 
 
+    showHeaderGreen "Linkwarden Server install success !  ${configLinkwarden_Domain}" \
+    "POSTGRES_USER: postgres, POSTGRES_PASSWORD: ${configLinkwarden_PostgreSQLPASSWORD}" \
+    "Linkwarden Data Path : ${configJoplinDockerPath}" \
+    "Linkwarden Logs: docker-compose logs -f -t "
+}
 
+function removeLinkwarden(){
+    echo
+    read -r -p "是否确认卸载 Linkwarden? 直接回车默认卸载, 请输入[Y/n]:" isRemoveLinkwardenInput
+    isRemoveLinkwardenInput=${isRemoveLinkwardenInput:-Y}
 
+    if [[ "${isRemoveLinkwardenInput}" == [Yy] ]]; then
+        echo
+        if [[ -d "${configLinkwardenDockerPath}" ]]; then
+
+            showHeaderGreen "准备卸载已安装的 Linkwarden Server"
+
+            cd ${configLinkwardenDockerPath} || exit
+            docker-compose down
+
+            rm -rf "${configLinkwardenDockerPath}"
+            rm -f "${nginxConfigSiteConfPath}/linkwarden_site.conf"
+
+            systemctl restart nginx.service
+            showHeaderGreen "已成功卸载 Linkwarden Server 版本 !"
+        else
+            showHeaderRed "系统没有安装 Linkwarden Server, 退出卸载"
+        fi
+    fi
+}
 
 
 
@@ -3343,7 +3869,7 @@ EOF
         showHeaderGreen "AFFiNE Server install success !  ${configAffine_APP_BASE_URL}" \
         "AFFiNE_Admin_USER: admin@localhost, AFFiNE_Admin_PASSWORD: admin" \
         "AFFiNE_Data Path : ${configAffineDockerPath}" \
-        "AFFiNE Logs: docker-compose --file docker-compose.yml logs" 
+        "AFFiNE Logs: docker-compose logs -f -t "
 }
 
 
@@ -3360,7 +3886,7 @@ function removeAffine(){
             showHeaderGreen "准备卸载已安装的 AFFiNE Server"
 
             cd ${configAffineDockerPath} || exit
-            docker-compose down 
+            docker-compose down
 
             rm -rf "${configAffineDockerPath}"
             rm -f "${nginxConfigSiteConfPath}/affine_site.conf"
@@ -3369,9 +3895,9 @@ function removeAffine(){
                 rm -f "${nginxConfigSiteConfPath}/affine_site.conf"
                 systemctl restart nginx.service
             fi
-            
+
             showHeaderGreen "已成功卸载 AFFiNE Server 版本 !"
-            
+
         else
             showHeaderRed "系统没有安装 AFFiNE Server, 退出卸载"
         fi
@@ -3607,7 +4133,7 @@ services:
       - AWS_S3_UPLOAD_BUCKET_URL=http://127.0.0.1:9000
       - AWS_S3_UPLOAD_BUCKET_NAME=${configOutline_BUCKET_NAME}
       - AWS_S3_FORCE_PATH_STYLE=true
-      - AWS_S3_ACL=private 
+      - AWS_S3_ACL=private
       - FORCE_HTTPS=false
 
   outline_redis:
@@ -3722,7 +4248,7 @@ EOF
         "Outline Do Not support email login, Pls manually set up authentication" \
         "Outline docker-compose config path : ${configOutlineDockerComposeFilePath}" \
         "Outline docker env path : ${configOutlineDockerPath}/docker.env " \
-        "Outline Logs: docker-compose logs outline" 
+        "Outline Logs: docker-compose logs outline"
 }
 
 
@@ -3739,19 +4265,19 @@ function removeOutline(){
             showHeaderGreen "准备卸载已安装的 Outline Server"
 
             cd ${configOutlineDockerPath} || exit
-            docker-compose down 
+            docker-compose down
 
             rm -rf "${configOutlineDockerPath}"
             rm -f "${nginxConfigSiteConfPath}/outline_site.conf"
-            
+
             if [[ -f "${nginxConfigSiteConfPath}/outline_site.conf" ]]; then
                 rm -f "${nginxConfigSiteConfPath}/outline_site.conf"
                 systemctl restart nginx.service
             fi
 
-            
+
             showHeaderGreen "已成功卸载 Outline Server 版本 !"
-            
+
         else
             showHeaderRed "系统没有安装 Outline Server, 退出卸载"
         fi
@@ -3786,7 +4312,7 @@ configFocalboardDockerDataPath="${HOME}/focalboard/docker/data"
 configFocalboardDockerPostgresPath="${HOME}/focalboard/docker/postgres"
 
 configFocalboard_PORT="8001"
-config_APP_BASE_URL="https://focalboard.example.com/"
+configFocalboard_APP_BASE_URL="https://focalboard.example.com/"
 configFocalboard_PostgreSQLDATABASE="focalboarddb"
 configFocalboard_PostgreSQLUSER="postgreuseradmin"
 configFocalboard_PostgreSQLPASSWORD="postgreuseradminpw"
@@ -3873,7 +4399,7 @@ services:
         image: mattermost/focalboard
         container_name: focalboard_app1
         depends_on:
-            - focalboard_db 
+            - focalboard_db
         ports:
             - "${configFocalboard_PORT}:8000"
         volumes:
@@ -3966,32 +4492,32 @@ EOF
         installWebServerNginx
         ${sudoCmd} systemctl restart nginx.service
 
-        config_APP_BASE_URL="https://${configSSLDomain}"
+        configFocalboard_APP_BASE_URL="https://${configSSLDomain}"
     else
         getVPSIP
-        config_APP_BASE_URL="http://${configLocalVPSIp}:${configFocalboard_PORT}"
+        configFocalboard_APP_BASE_URL="http://${configLocalVPSIp}:${configFocalboard_PORT}"
     fi
- 
+
     echo
     docker pull mattermost/focalboard
     echo
     docker-compose up -d
     echo
-    
+
     if [[ "${isUseSqliteInput}" == [Yy] ]]; then
         showHeaderGreen "Focalboard Server install success !  " \
-        "Visit: ${config_APP_BASE_URL}" \
+        "Visit: ${configFocalboard_APP_BASE_URL}" \
         "Focalboard DockerCompose Config : ${configFocalboardDockerPath}/config.json" \
         "Focalboard Sqlite Data : ${configFocalboardDockerDataPath}/focalboard.db" \
-        "Focalboard Logs: docker-compose --file docker-compose.yml logs" 
+        "Focalboard Logs: docker-compose logs -f -t "
     else
 
         showHeaderGreen "Focalboard Server install success !  " \
-        "Visit: ${config_APP_BASE_URL}" \
+        "Visit: ${configFocalboard_APP_BASE_URL}" \
         "Focalboard DockerCompose Config : ${configFocalboardDockerPath}/config.json" \
         "PostgreSQL Admin: ${configFocalboard_PostgreSQLUSER}, PostgreSQL Admin Password: ${configFocalboard_PostgreSQLPASSWORD}" \
         "Focalboard PostgreSQL Data : ${configFocalboardDockerDataPath}" \
-        "Focalboard Logs: docker-compose --file docker-compose.yml logs" 
+        "Focalboard Logs: docker-compose logs -f -t "
     fi
 
 
@@ -4012,15 +4538,15 @@ function removeFocalboard(){
             showHeaderGreen "准备卸载已安装的 Focalboard Server"
 
             cd ${configFocalboardDockerPath} || exit
-            docker-compose down 
+            docker-compose down
 
             rm -rf "${configFocalboardDockerPath}"
-            
+
             if [[ -f ""${nginxConfigSiteConfPath}/focalboard_site.conf"" ]]; then
                 rm -f "${nginxConfigSiteConfPath}/focalboard_site.conf"
                 systemctl restart nginx.service
             fi
-            
+
             showHeaderGreen "已成功卸载 Focalboard Server 版本 !"
         else
             showHeaderRed "系统没有安装 Focalboard Server, 退出卸载"
@@ -4053,18 +4579,18 @@ function installJitsiMeet(){
     green " 请选择安装方式: (默认为 1 Docker方式)"
     echo
     green " 1. Install Jitsi Meet by Docker"
-    green " 2. Install Jitsi Meet directly, only support Debian 10 / Ubuntu 20.04"   
+    green " 2. Install Jitsi Meet directly, only support Debian 10 / Ubuntu 20.04"
     echo
     read -r -p "请输入纯数字, 默认为1 Docker方式:" jitsimeetDockerInput
-    
+
     case "${jitsimeetDockerInput}" in
         1 )
-            installJitsiMeetByDocker    
+            installJitsiMeetByDocker
         ;;
         2 )
             installJitsiMeetOnUbuntu
-        ;;        
-    
+        ;;
+
         * )
             installJitsiMeetByDocker
         ;;
@@ -4076,7 +4602,7 @@ configJitsiMeetDockerPath="${HOME}/jitsi_meet/docker"
 configJitsiMeetDownloadPath="${HOME}/jitsi_meet/download"
 
 function installJitsiMeetByDocker(){
-    
+
     if [ -f "${configJitsiMeetDockerPath}/docker-compose.yml" ]; then
         showHeaderRed "Jitsi Meet already installed !"
         exit
@@ -4117,12 +4643,12 @@ function installJitsiMeetByDocker(){
 
     sed -i "s|#PUBLIC_URL=https:\/\/meet.example.com|PUBLIC_URL=https:\/\/${configSSLDomain}|g" "${configJitsiMeetDockerPath}/.env"
     sed -i "s|#DOCKER_HOST_ADDRESS=192.168.1.1|DOCKER_HOST_ADDRESS=${configLocalVPSIp}|g" "${configJitsiMeetDockerPath}/.env"
-    
+
     sed -i "s|#ENABLE_LETSENCRYPT=1|ENABLE_LETSENCRYPT=1|g" "${configJitsiMeetDockerPath}/.env"
     sed -i "s|#LETSENCRYPT_DOMAIN=meet.example.com|LETSENCRYPT_DOMAIN=${configSSLDomain}|g" "${configJitsiMeetDockerPath}/.env"
     sed -i "s|#LETSENCRYPT_EMAIL=alice@atlanta.net|LETSENCRYPT_EMAIL=${configEmailForSSLDomain}|g" "${configJitsiMeetDockerPath}/.env"
 
-    
+
 
 
     addPasswordForJitsiMeetDocker "first"
@@ -4135,7 +4661,7 @@ function installJitsiMeetByDocker(){
     "查看日志 web: docker-compose logs -t -f web" \
     "查看日志 prosody: docker-compose logs -t -f prosody" \
     "查看日志 jvb: docker-compose logs -t -f jvb" \
-    "查看日志 jicofo: docker-compose logs -t -f jicofo" 
+    "查看日志 jicofo: docker-compose logs -t -f jicofo"
 
 
 }
@@ -4145,7 +4671,7 @@ function addPasswordForJitsiMeetDocker(){
     cd "${configJitsiMeetDockerPath}" || exit
 
     if [[ -z "$1" ]]; then
-        
+
         docker-compose down
     else
         echo
@@ -4210,12 +4736,12 @@ function installJitsiMeetOnUbuntu(){
     else
         sed -i '/packages.prosody.im/d' /etc/apt/sources.list
 
-        ${sudoCmd} apt update -y 
+        ${sudoCmd} apt update -y
         ${sudoCmd} apt install -y apt-transport-https
 
         if [ "$osRelease" == "ubuntu" ]; then
             ${sudoCmd} apt-add-repository universe -y
-            ${sudoCmd} apt update -y 
+            ${sudoCmd} apt update -y
         fi
     fi
 
@@ -4226,11 +4752,11 @@ function installJitsiMeetOnUbuntu(){
     # Add the Jitsi package repository
     curl https://download.jitsi.org/jitsi-key.gpg.key | ${sudoCmd} sh -c 'gpg --dearmor > /usr/share/keyrings/jitsi-keyring.gpg'
     echo "deb [signed-by=/usr/share/keyrings/jitsi-keyring.gpg] https://download.jitsi.org stable/" | ${sudoCmd} tee /etc/apt/sources.list.d/jitsi-stable.list > /dev/null
-    
+
     green " =================================================="
     ${sudoCmd} apt-get -y update
     green " =================================================="
-    
+
     showInfoGreen "Setting firewall rules"
     ${sudoCmd} ufw allow 80/tcp
     ${sudoCmd} ufw allow 443/tcp
@@ -4251,8 +4777,8 @@ function installJitsiMeetOnUbuntu(){
 
     mkdir -p ${configJitsiMeetNginxConfigFolderPath}
     mkdir -p ${configJitsiMeetNginxConfigFolder2Path}
-    
-    # https://jitsi.org/downloads/ubuntu-debian-installations-instructions/    
+
+    # https://jitsi.org/downloads/ubuntu-debian-installations-instructions/
     ${sudoCmd} apt-get -y install jitsi-meet
 
     #sudo apt-get -y install jigasi
@@ -4306,7 +4832,7 @@ function installJitsiMeetOnUbuntu(){
     systemctl show --property DefaultLimitNOFILE
     systemctl show --property DefaultTasksMax
 
-    ${sudoCmd} systemctl daemon-reload 
+    ${sudoCmd} systemctl daemon-reload
 
     secureAddPasswordForJitsiMeet "first"
 
@@ -4322,7 +4848,7 @@ function secureAddPasswordForJitsiMeet(){
         addPasswordForJitsiMeetDocker
         exit
     fi
-    
+
     green " =================================================="
     echo
     read -r -p "请输入已解析到本机的域名: " configSSLDomain
@@ -4388,9 +4914,9 @@ EOM
 
         ${sudoCmd} prosodyctl register "${isJitsiMeetUsernameInput}" "${configSSLDomain}" "${isJitsiMeetUserPasswordInput}"
         # User list:  /var/lib/prosody/v%2evr360%2ecf/accounts
-   
-        echo 
-        green "Use the following command to add new user: " 
+
+        echo
+        green "Use the following command to add new user: "
         yellow "prosodyctl register username domain_name password"
         green "Docs: https://prosody.im/doc/prosodyctl#user-management"
         echo
@@ -4398,7 +4924,7 @@ EOM
 
         showHeaderGreen "Please manually modify Jigasi configuration if you are using Jigasi" "Docs: https://jitsi.github.io/handbook/docs/devops-guide/secure-domain/"
 
-    else 
+    else
         echo
         # https://stackoverflow.com/questions/4396974/sed-or-awk-delete-n-lines-following-a-pattern
 
@@ -4412,7 +4938,7 @@ EOM
         fi
     fi
 
-    ${sudoCmd} systemctl daemon-reload 
+    ${sudoCmd} systemctl daemon-reload
     ${sudoCmd} systemctl restart prosody
     ${sudoCmd} systemctl restart jicofo
     ${sudoCmd} systemctl restart jitsi-videobridge2
@@ -4422,7 +4948,7 @@ EOM
 
 function removeJitsiMeet(){
 
-    
+
     if [ -f "${configJitsiMeetDockerPath}/.env" ]; then
         showHeaderGreen "准备卸载 Jitsi Meet Docker "
 
@@ -4445,7 +4971,7 @@ function removeJitsiMeet(){
 
             ${sudoCmd} apt purge -y jigasi jitsi-meet jitsi-meet-web-config jitsi-meet-prosody jitsi-meet-turnserver jitsi-meet-web jicofo jitsi-videobridge2 prosody
             ${sudoCmd} apt autoremove -y
-            ${sudoCmd} apt purge -y jicofo jitsi-videobridge2 
+            ${sudoCmd} apt purge -y jicofo jitsi-videobridge2
             ${sudoCmd} apt autoremove -y
 
             rm -f /etc/prosody/prosody.cfg.lua
@@ -4457,10 +4983,10 @@ function removeJitsiMeet(){
             showHeaderGreen "已成功卸载 Jitsi Meet 非Docker 安装版本 !"
         fi
 
-        removeNginx    
+        removeNginx
     fi
 
-    
+
 }
 
 
@@ -4532,135 +5058,6 @@ function removeJitsiMeet(){
 
 
 
-
-
-configGhostProjectPath="/opt/ghost"
-configGhostDockerPath="/opt/ghost/docker"
-configGhostSitePath="/opt/ghost/site"
-ghostUser="ghostsite"
-
-function installCMSGhost(){
-    if [[ -d "${configGhostDownloadPath}" ]]; then
-        showHeaderRed "Ghost already installed !"
-        exit
-    fi
-    showHeaderGreen "Prepare to install Ghost !"
-
-    if ! command -v npm &> /dev/null ; then
-        showHeaderRed "Npm could not be found, Please install Nodejs first !"
-        exit
-    fi
-
-    isInstallNginx="true"
-    configSSLCertPath="${configSSLCertPath}/ghost"
-    getHTTPSCertificateStep1
-    configInstallNginxMode="ghost"
-    installWebServerNginx
-
-
-    
-    createNewUser "${ghostUser}"
-    # passwd "${ghostUser}" ghost2022user
-
-    # https://stackoverflow.com/questions/714915/using-the-passwd-command-from-within-a-shell-script
-    echo "ghost2022user" | passwd "${ghostUser}" --stdin
-    red " Password for linux user ghostsite: ghost2022user"
-    echo
-
-    ${sudoCmd} mkdir -p "${configGhostSitePath}"
-
-    ${sudoCmd} chown -R ${ghostUser}:${ghostUser} "${configGhostProjectPath}"
-    ${sudoCmd} chmod -R 775  "${configGhostProjectPath}"
-
-    cd "${configGhostSitePath}" || exit
-    ${sudoCmd} npm install ghost-cli@latest -g
-    
-    # su - "ghost" -c cd "${configGhostSitePath}"
-
-    su - ${ghostUser} << EOF
-    echo "--------------------"
-    echo "Current user:"
-    whoami
-    echo
-    cd "${configGhostSitePath}"
-    ghost install --port 3468 --db=sqlite3 --no-setup-nginx --no-setup-ssl --no-setup-mysql --no-stack --no-prompt --dir ${configGhostSitePath} --url https://${configSSLDomain}
-    echo "--------------------"
-EOF
-
-    echo
-    echo "Current user: $(whoami)"
-    echo
-
-    showHeaderGreen "Ghost installed successfully! " \
-    "Ghost Admin panel:  http://localhost:3468/ghost" \
-    "The SQLite3 database located in ${configGhostSitePath}/content/data"
-
-    showHeaderGreen " Please manually run following command if installation failed: " \
-    "su - ${ghostUser}" \
-    "cd ${configGhostSitePath}" \
-    "ghost install --port 3468 --db=sqlite3 --no-setup-nginx --no-setup-ssl --no-setup-mysql --no-stack --no-prompt --dir ${configGhostSitePath} --url https://${configSSLDomain}"
-    red "Input password 'ghost2022user' when ask for linux user 'ghostsite' password"
-
-
-        read -r -d '' ghostConfigEmailInput << EOM
-    "mail": {
-      "from": "annajscool@freair.com",
-      "transport": "SMTP",
-      "options": {
-        "host": "smtp.gmail.com",
-        "service": "Gmail",
-        "port": "465",
-        "secure": true,
-        "auth": {
-          "user": "jinwyp2@gmail.com",
-          "pass": "aslgotjzmwrkuvto"
-        }
-      }
-    },
-EOM
-
-
-}
-
-
-function removeCMSGhost(){
-    echo
-    read -r -p "是否确认卸载Ghost? 直接回车默认卸载, 请输入[Y/n]:" isRemoveGhostInput
-    isRemoveGhostInput=${isRemoveGhostInput:-Y}
-
-    if [[ "${isRemoveGhostInput}" == [Yy] ]]; then
-
-        echo
-        if [[ -d "${configGhostSitePath}" ]]; then
-
-            showHeaderGreen "准备卸载已安装的 Ghost"
-
-    su - ${ghostUser} << EOF
-    echo "--------------------"
-    echo "Current user:"
-    whoami
-    echo
-    cd "${configGhostSitePath}"
-    ghost stop
-    ghost uninstall
-    echo "--------------------"
-EOF
-
-            userdel -r "${ghostUser}"
-
-            rm -rf "${configGhostSitePath}"
-            rm -f "${nginxConfigSiteConfPath}/ghost_site.conf"
-            
-            systemctl restart nginx.service
-            showHeaderGreen "已成功卸载 Ghost !"
-        else
-            showHeaderRed "系统没有安装 Ghost, 退出卸载"
-        fi
-
-    fi
-    removeNginx
-
-}
 
 
 
@@ -4770,8 +5167,8 @@ function replaceSogaConfig(){
 
         read -p "请输入节点ID (纯数字):" inputV2boardNodeId
         sed -i "s/node_id=1/node_id=${inputV2boardNodeId}/g" ${configSogaConfigFilePath}
-    
-        soga restart 
+
+        soga restart
 
     fi
 
@@ -4827,6 +5224,7 @@ configXrayRAccessLogFilePath="${HOME}/xrayr-access.log"
 configXrayRErrorLogFilePath="${HOME}/xrayr-error.log"
 
 configXrayRConfigFilePath="/etc/XrayR/config.yml"
+configXrayRPath="/etc/XrayR"
 
 function installXrayR(){
     echo
@@ -4841,7 +5239,7 @@ function installXrayR(){
     # https://raw.githubusercontent.com/Misaka-blog/XrayR-script/master/install.sh
     # https://raw.githubusercontent.com/long2k3pro/XrayR-release/master/install.sh
 
-    wget -O xrayr_install.sh -N --no-check-certificate "https://raw.githubusercontent.com/long2k3pro/XrayR-release/master/install.sh" && chmod +x xrayr_install.sh && ./xrayr_install.sh
+    wget -O xrayr_install.sh -N --no-check-certificate "https://raw.githubusercontent.com/XrayR-project/XrayR-release/master/install.sh" && chmod +x xrayr_install.sh && ./xrayr_install.sh
 
     replaceXrayRConfig
 }
@@ -4851,66 +5249,38 @@ function replaceXrayRConfig(){
 
     if test -s ${configXrayRConfigFilePath}; then
 
-        echo
-        green "请选择SSL证书申请方式: 1 XrayR内置的http 方式, 2 通过acme.sh 申请并放置证书文件, "
-        green "默认直接回车为 XrayR内置的http自动申请模式"
-        green "选否则通过acme.sh申请证书, 支持http 和 dns 等更多模式申请证书, 推荐使用"
-        echo
-        green "注意: XrayR 的SSL证书申请方式 共有4种: 1 XrayR内置的http 方式, 2 XrayR内置的 dns 方式, 3 file 手动放置证书文件, 4 none 不申请证书"
-        green "如需要使用 XrayR内置的dns 申请SSL证书方式, 请手动修改 ${configXrayRConfigFilePath} 配置文件"
-    
-        read -p "请选择SSL证书申请方式 ? 默认直接回车为http自动申请模式, 选否则手动放置证书文件同时也会自动申请证书, 请输入[Y/n]:" isSSLRequestHTTPInput
-        isSSLRequestHTTPInput=${isSSLRequestHTTPInput:-Y}
-
-        configXrayRSSLRequestMode="http"
-        if [[ $isSSLRequestHTTPInput == [Yy] ]]; then
-            echo
-            green " ================================================== "
-            yellow " 请输入绑定到本VPS的域名 例如www.xxx.com: (此步骤请关闭CDN后和nginx后安装 避免80端口占用导致申请证书失败)"
-            green " ================================================== "
-
-            read configSSLDomain
-
-        else
-            configSSLCertPath="${configSSLCertPathV2board}"
-            getHTTPSCertificateStep1
-            configXrayRSSLRequestMode="file"
-        
-            sed -i "s?./cert/node1.test.com.cert?${configSSLCertPath}/${configSSLCertFullchainFilename}?g" ${configXrayRConfigFilePath}
-            sed -i "s?./cert/node1.test.com.key?${configSSLCertPath}/${configSSLCertKeyFilename}?g" ${configXrayRConfigFilePath}
-
-        fi
-
-        sed -i "s/CertMode: dns/CertMode: ${configXrayRSSLRequestMode}/g" ${configXrayRConfigFilePath}
-        sed -i 's/CertDomain: "node1.test.com"/CertDomain: "www.xxxx.net"/g' ${configXrayRConfigFilePath}
-        sed -i "s/www.xxxx.net/${configSSLDomain}/g" ${configXrayRConfigFilePath}
+        sed -i "s|# /etc/XrayR/access.Log|${configXrayRAccessLogFilePath}|g" ${configXrayRConfigFilePath}
+        sed -i "s|# /etc/XrayR/error.log|${configXrayRErrorLogFilePath}|g" ${configXrayRConfigFilePath}
+        sed -i "s|# /etc/XrayR/dns.json|/etc/XrayR/dns.json|g" ${configXrayRConfigFilePath}
+        sed -i "s|# /etc/XrayR/route.json|/etc/XrayR/route.json|g" ${configXrayRConfigFilePath}
+        # sed -i "s|# /etc/XrayR/custom_inbound.json|/etc/XrayR/custom_inbound.json|g" ${configXrayRConfigFilePath}
+        sed -i "s|# /etc/XrayR/custom_outbound.json|/etc/XrayR/custom_outbound.json|g" ${configXrayRConfigFilePath}
 
         echo
-        read -p "请选择支持的面板类型 ? 默认直接回车为V2board, 选否则SSpanel, 请输入[Y/n]:" isXrayRPanelTypeInput
+        read -r -p "请选择支持的面板类型 ? 默认直接回车为V2board, 选否则SSpanel, 请输入[Y/n]:" isXrayRPanelTypeInput
         isXrayRPanelTypeInput=${isXrayRPanelTypeInput:-Y}
         configXrayRPanelType="SSpanel"
 
         if [[ $isXrayRPanelTypeInput == [Yy] ]]; then
-            configXrayRPanelType="V2board"
-            sed -i 's/PanelType: "SSpanel"/PanelType: "V2board"/g' ${configXrayRConfigFilePath}
+            configXrayRPanelType="NewV2board"
+            sed -i 's/PanelType: "SSpanel"/PanelType: "NewV2board"/g' ${configXrayRConfigFilePath}
+        else
+            sed -i 's/PanelType: "NewV2board"/PanelType: "SSpanel"/g' ${configXrayRConfigFilePath}
         fi
 
-        
         echo
         green "请输入面板域名, 例如www.123.com 不要带有http或https前缀 结尾不要带/"
-        green "请保证输入的V2board或其他面板域名支持Https 访问, 如要改成http请手动修改配置文件 ${configXrayRConfigFilePath}"
-        read -p "请输入面板域名 :" inputV2boardDomain
+        green "请保证输入的V2board或其他面板域名支持Https访问, 如要改成http请手动修改配置文件 ${configXrayRConfigFilePath}"
+        echo
+        read -r -p "请输入面板域名:" inputV2boardDomain
         sed -i "s?http://127.0.0.1:667?https://${inputV2boardDomain}?g" ${configXrayRConfigFilePath}
 
-        read -p "请输入ApiKey 即通信密钥:" inputV2boardWebApiKey
-        sed -i "s/123/${inputV2boardWebApiKey}/g" ${configXrayRConfigFilePath}
-
-        read -p "请输入节点ID (纯数字):" inputV2boardNodeId
-        sed -i "s/41/${inputV2boardNodeId}/g" ${configXrayRConfigFilePath}
-    
+        echo
+        read -r -p "请输入ApiKey 即通信密钥:" inputV2boardWebApiKey
+        sed -i "s/\"123\"/\"${inputV2boardWebApiKey}\"/g" ${configXrayRConfigFilePath}
 
         echo
-        read -p "请选择支持的节点类型 ? 默认直接回车为V2ray, 选否则为Trojan, 请输入[Y/n]:" isXrayRNodeTypeInput
+        read -r -p "请选择节点协议类型: 默认直接回车为V2ray, 选否则为Trojan, 请输入[Y/n]:" isXrayRNodeTypeInput
         isXrayRNodeTypeInput=${isXrayRNodeTypeInput:-Y}
         configXrayRNodeType="V2ray"
 
@@ -4919,35 +5289,121 @@ function replaceXrayRConfig(){
             sed -i 's/NodeType: V2ray/NodeType: Trojan/g' ${configXrayRConfigFilePath}
 
         else
+            sed -i 's/NodeType: Trojan/NodeType: V2ray/g' ${configXrayRConfigFilePath}
             echo
-            read -p "是否给V2ray启用Vless协议 ? 默认直接回车选择否,默认启用Vmess协议, 选择是则启用Vless协议, 请输入[y/N]:" isXrayRVlessSupportInput
+            read -r -p "是否启用XrayR的Vless协议? 默认直接回车为否, 默认启用Vmess协议, 选择是则启用Vless协议, 请输入[y/N]:" isXrayRVlessSupportInput
             isXrayRVlessSupportInput=${isXrayRVlessSupportInput:-N}
 
             if [[ $isXrayRVlessSupportInput == [Yy] ]]; then
                 sed -i 's/EnableVless: false/EnableVless: true/g' ${configXrayRConfigFilePath}
+            else
+                sed -i 's/EnableVless: true/EnableVless: false/g' ${configXrayRConfigFilePath}
             fi
 
             echo
-            read -p "是否给V2ray启用XTLS ? 默认直接回车选择否,默认启用Tls, 选择是则启用XTLS, 请输入[y/N]:" isXrayRXTLSSupportInput
-            isXrayRXTLSSupportInput=${isXrayRXTLSSupportInput:-N}
+            read -r -p "是否启用XrayR的REALITY? 默认直接回车为否 不启用, 选择是则启用, 请输入[y/N]:" isXrayRREALITYSupportInput
+            isXrayRREALITYSupportInput=${isXrayRREALITYSupportInput:-N}
 
-            if [[ $isXrayRXTLSSupportInput == [Yy] ]]; then
-                sed -i 's/EnableXTLS: false/EnableXTLS: true/g' ${configXrayRConfigFilePath}
+            if [[ $isXrayRREALITYSupportInput == [Yy] ]]; then
+                sed -i 's/EnableREALITY: false/EnableREALITY: true/g' ${configXrayRConfigFilePath}
+            else
+                sed -i 's/EnableREALITY: true/EnableREALITY: false/g' ${configXrayRConfigFilePath}
             fi
-
         fi
 
+        echo
+        read -r -p "是否启用XrayR内置的DNS? 默认直接回车为否 不启用, 选择是则启用, 请输入[y/N]:" isXrayREnableDNSInput
+        isXrayREnableDNSInput=${isXrayREnableDNSInput:-N}
 
-        sed -i "s?# ./access.Log?${configXrayRAccessLogFilePath}?g" ${configXrayRConfigFilePath}
-        sed -i "s?# ./error.log?${configXrayRErrorLogFilePath}?g" ${configXrayRConfigFilePath}
-        sed -i "s?Level: none?Level: info?g" ${configXrayRConfigFilePath}
-            
+        if [[ $isXrayREnableDNSInput == [Yy] ]]; then
+            sed -i 's/EnableDNS: false/EnableDNS: true/g' ${configXrayRConfigFilePath}
+            sed -i 's/DNSType: AsIs/DNSType: UseIP/g' ${configXrayRConfigFilePath}
+        else
+            sed -i 's/EnableDNS: true/EnableDNS: false/g' ${configXrayRConfigFilePath}
+            sed -i 's/DNSType: UseIP/DNSType: AsIs/g' ${configXrayRConfigFilePath}
+        fi
 
-        XrayR restart 
+        echo
+        read -r -p "请输入节点ID (纯数字):" inputV2boardNodeId
+        sed -i "s/NodeID: [0-9]*/NodeID: ${inputV2boardNodeId}/g" ${configXrayRConfigFilePath}
 
+
+
+        echo
+        green " =================================================="
+        yellow " 请选择SSL证书申请方式"
+        echo
+        green " 1. 关闭TLS 不申请证书, 用于配合Nginx或Caddy 等Web服务器"
+        green " 2. 通过 http 模式申请, 需要开放 80 端口"
+        green " 3. 通过 dns 模式申请, 需要填写相关dns服务商配置"
+        green " 4. 手动提供证书，需要指定证书的路径"
+        green " 5. 通过外部的acme.sh 申请证书 支持http 和 dns 等更多模式申请证书"
+        echo
+        read -r -p "请选择证书申请方式? 直接回车默认选2 http模式申请, 请输入纯数字:" isSSLRequestHTTPInput
+        isSSLRequestHTTPInput=${isSSLRequestHTTPInput:-2}
+        configXrayRSSLRequestMode="none"
+
+        if [[ $isSSLRequestHTTPInput == "1" ]]; then
+            configXrayRSSLRequestMode="none"
+
+        elif [[ $isSSLRequestHTTPInput == "2" ]]; then
+            configXrayRSSLRequestMode="http"
+            green " ================================================== "
+            yellow " 请输入指向本VPS的域名 用于申请证书 例如www.xxx.com: (此步骤请关闭CDN后和nginx后安装 避免80端口占用导致申请证书失败)"
+            green " ================================================== "
+
+            read configSSLDomain
+
+        elif [[ $isSSLRequestHTTPInput == "3" ]]; then
+            configXrayRSSLRequestMode="dns"
+            green " ================================================== "
+            yellow " 请输入绑定到本VPS的域名 例如www.xxx.com: (此步骤请关闭CDN后和nginx后安装 避免80端口占用导致申请证书失败)"
+            green " ================================================== "
+            read -r configSSLDomain
+
+            echo
+            read -r -p "请选择DNS模式申请的服务商? 默认直接回车为alidns, 选否则cloudflare, 请输入[Y/n]:" isXrayRSSLDNSProviderInput
+            isXrayRSSLDNSProviderInput=${isXrayRSSLDNSProviderInput:-Y}
+            configXrayRPanelType="alidns"
+
+            if [[ $isXrayRSSLDNSProviderInput == [Nn] ]]; then
+                configXrayRPanelType="cloudflare"
+                sed -i "s/alidns/cloudflare/g" ${configXrayRConfigFilePath}
+            fi
+
+            echo
+            read -r -p "请填写DNS模式申请的Email:" isXrayRSSLDNSEmailInput
+            sed -i "s/Email: test@me.com/Email: ${isXrayRSSLDNSEmailInput}/g" ${configXrayRConfigFilePath}
+
+        elif [[ $isSSLRequestHTTPInput == "4" ]]; then
+            configXrayRSSLRequestMode="file"
+
+        else
+            configXrayRSSLRequestMode="file"
+            configSSLCertPath="${configSSLCertPathV2board}"
+            getHTTPSCertificateStep1
+
+            sed -i "s?/etc/XrayR/cert/node1.test.com.cert?${configSSLCertPath}/${configSSLCertFullchainFilename}?g" ${configXrayRConfigFilePath}
+            sed -i "s?/etc/XrayR/cert/node1.test.com.key?${configSSLCertPath}/${configSSLCertKeyFilename}?g" ${configXrayRConfigFilePath}
+        fi
+
+        sed -i "s/CertMode: dns/CertMode: ${configXrayRSSLRequestMode}/g" ${configXrayRConfigFilePath}
+        sed -i "s/CertDomain: \"node1.test.com\"/CertDomain: \"${configSSLDomain}\"/g" ${configXrayRConfigFilePath}
+
+
+        sed -i "18,22d" ${configXrayRPath}/route.json
+        # mv ${configXrayRPath}/custom_inbound.json ${configXrayRPath}/custom_inbound_bak.json
+
+        XrayR restart
+
+        (crontab -l ; echo "35 4 * * 0,1,2,3,4,5,6 rm -f /root/xrayr-*.log") | sort - | uniq - | crontab -
+        (crontab -l ; echo "36 4 * * 0,1,2,3,4,5,6 systemctl restart XrayR.service ") | sort - | uniq - | crontab -
+
+        warpGoCrontab
     fi
 
     manageXrayR
+
 }
 
 
@@ -4978,11 +5434,58 @@ function editXrayRConfig(){
 
 
 
+function warpGoCrontab(){
 
+    cat > /root/check_ipv6_warp-go-cron.sh <<-EOF
+#!/bin/bash
 
+# check ipv6 network connectivity
+if ping6 -c 4 2001:4860:4860::8888 > /dev/null; then
+    echo "IPv6 network is connected"
+else
+    echo "IPv6 network is unreachable"
+    /usr/bin/warp-go o
+    sleep 2
 
+    if ping6 -c 4 2001:4860:4860::8888 > /dev/null; then
+        echo "IPv6 network is connected"
+    else
+        echo "IPv6 network is unreachable"
+        /usr/bin/warp-go o
+        sleep 2
+    fi
+fi
+EOF
 
+    chmod +x /root/check_ipv6_warp-go-cron.sh
 
+    # create a cron job
+    (crontab -l ; echo "50 4 * * 0,1,2,3,4,5,6 /root/check_ipv6_warp-go-cron.sh ") | sort - | uniq - | crontab -
+
+    echo "warp-go Crontab added"
+
+}
+
+function warpGoCheckIpv6(){
+    ipv6_address="2001:4860:4860::8888"
+    ping_command="ping6 -c 4 $ipv6_address"
+
+    # check ipv6 network connectivity
+    if ping6 -c 4 $ipv6_address > /dev/null; then
+        echo "IPv6 network is connected"
+    else
+        echo "IPv6 network is unreachable"
+        /usr/bin/warp-go o
+        sleep 2
+        if ping6 -c 4 $ipv6_address > /dev/null; then
+            echo "IPv6 network is connected"
+        else
+            echo "IPv6 network is unreachable"
+            /usr/bin/warp-go o
+            sleep 2
+        fi
+    fi
+}
 
 
 
@@ -5025,20 +5528,12 @@ function installAiruAndNginx(){
 
 
 
-
-
-
-
-
-
-
 function downgradeXray(){
     echo
     green " =================================================="
     green "  准备降级 Xray 和 Air-Universe !"
     green " =================================================="
     echo
-
 
     yellow " 请选择 Air-Universe 降级到的版本, 默认不降级"
     red " 注意 Air-Universe 最新版不支持 Xray 1.5.0或更老版本"
@@ -5199,19 +5694,19 @@ function downgradeXray(){
 
     if [[ -z $1 ]]; then
         echo
-        
+
         airu stop
         systemctl stop xray.service
 
         chmod 666 ${configSSLCertPathV2board}/*
-        
+
         systemctl start xray.service
         echo
         airu start
         echo
         systemctl status xray.service
         echo
-    fi    
+    fi
 }
 
 
@@ -5234,20 +5729,20 @@ function installAirUniverse(){
     green "  开始安装 支持V2board面板的 服务器端程序 Air-Universe !"
     green " =================================================="
     echo
-    
+
 
     if [ -z "$1" ]; then
         testLinuxPortUsage
 
-        # bash -c "$(curl -L https://github.com/crossfw/Xray-install/raw/main/install-release.sh)" @ install  
+        # bash -c "$(curl -L https://github.com/crossfw/Xray-install/raw/main/install-release.sh)" @ install
         # bash <(curl -Ls https://raw.githubusercontent.com/crossfw/Air-Universe-install/master/install.sh)
-        
+
         # bash <(curl -Ls https://raw.githubusercontent.com/crossfw/Air-Universe-install/master/AirU.sh)
-        wget -O /root/airu_install.sh -N --no-check-certificate "https://raw.githubusercontent.com/crossfw/Air-Universe-install/master/AirU.sh" 
-        chmod +x /root/airu_install.sh 
+        wget -O /root/airu_install.sh -N --no-check-certificate "https://raw.githubusercontent.com/crossfw/Air-Universe-install/master/AirU.sh"
+        chmod +x /root/airu_install.sh
         cp -f /root/airu_install.sh /usr/bin/airu
-        
-        /root/airu_install.sh install 
+
+        /root/airu_install.sh install
 
         (crontab -l ; echo "30 4 * * 0,1,2,3,4,5,6 systemctl restart xray.service ") | sort - | uniq - | crontab -
         (crontab -l ; echo "32 4 * * 0,1,2,3,4,5,6 /usr/bin/airu restart ") | sort - | uniq - | crontab -
@@ -5279,7 +5774,7 @@ function installAirUniverse(){
             airUniverseConfigNodeIdNumberInput=$(grep "nodes_type"  ${configAirUniverseConfigFilePath} | awk -F  ":" '{print $2}')
 
             read -r -d '' airUniverseConfigProxyInput << EOM
-        
+
         "type": "xray",
         "auto_generate": true,
         "in_tags": ${airUniverseConfigNodeIdNumberInput},
@@ -5292,7 +5787,7 @@ function installAirUniverse(){
             "key_path": "${configSSLCertPath}/${configSSLCertKeyFilename}"
         },
         "speed_limit_level": [0, 10, 30, 100, 150, 300, 1000]
-        
+
 EOM
 
             # https://stackoverflow.com/questions/6684487/sed-replace-with-variable-with-multiple-lines
@@ -5307,9 +5802,9 @@ EOM
 
 
             replaceAirUniverseConfigWARP "norestart"
-            
+
             chmod 666 ${configSSLCertPathV2board}/*
-            
+
 
             # chown -R nobody:nogroup /var/log/v2ray
 
@@ -5322,7 +5817,7 @@ EOM
             green " =================================================="
             green " Air-Universe 安装成功 !"
             green " =================================================="
-            
+
             manageAirUniverse
         else
             echo
@@ -5460,7 +5955,7 @@ EOM
             }
         },
 EOM
-        
+
 }
 
 
@@ -5515,7 +6010,7 @@ EOM
             },
         "localhost"
         ]
-    }, 
+    },
 EOM
 
     fi
@@ -5554,7 +6049,7 @@ EOM
         configWARPPortLocalServerPort="$(cat ${configWARPPortFilePath})"
         configWARPPortLocalServerText="检测到本机已安装 WARP Sock5, 端口号 ${configWARPPortLocalServerPort}"
     fi
-    
+
     if [[ $isV2rayUnlockWarpModeInput == "1" ]]; then
         echo
     else
@@ -5606,7 +6101,7 @@ EOM
 
         if [[ $isV2rayUnlockVideoSiteInput == "2" ]]; then
             V2rayUnlockVideoSiteRuleText="\"geosite:netflix\""
-            
+
         elif [[ $isV2rayUnlockVideoSiteInput == "3" ]]; then
             V2rayUnlockVideoSiteRuleText="\"geosite:youtube\""
 
@@ -5654,7 +6149,7 @@ EOM
 #             {
 #                 "type": "field",
 #                 "outboundTag": "GoNetflix",
-#                 "domain": [ "geosite:netflix", "geosite:disney" ] 
+#                 "domain": [ "geosite:netflix", "geosite:disney" ]
 #             },
 # EOM
 
@@ -5722,7 +6217,7 @@ EOM
             {
                 "type": "field",
                 "outboundTag": "${V2rayUnlockVideoSiteOutboundTagText}",
-                "domain": [${V2rayUnlockVideoSiteRuleText}] 
+                "domain": [${V2rayUnlockVideoSiteRuleText}]
             },
 EOM
 
@@ -5738,7 +6233,7 @@ EOM
             echo
             yellow " ${configWARPPortLocalServerText}"
             read -p "请输入WARP Sock5 代理服务器端口号? 直接回车默认${configWARPPortLocalServerPort}, 请输入纯数字:" unlockWARPServerPortInput
-            unlockWARPServerPortInput=${unlockWARPServerPortInput:-$configWARPPortLocalServerPort}           
+            unlockWARPServerPortInput=${unlockWARPServerPortInput:-$configWARPPortLocalServerPort}
 
         elif [[ $isV2rayUnlockGoogleInput == "3" ]]; then
             V2rayUnlockGoogleOutboundTagText="IPv6_out"
@@ -5760,19 +6255,19 @@ EOM
             {
                 "type": "field",
                 "outboundTag": "${V2rayUnlockGoogleOutboundTagText}",
-                "domain": [${V2rayUnlockGoogleRuleText}] 
+                "domain": [${V2rayUnlockGoogleRuleText}]
             },
             {
                 "type": "field",
                 "outboundTag": "${V2rayUnlockVideoSiteOutboundTagText}",
-                "domain": [${V2rayUnlockVideoSiteRuleText}] 
+                "domain": [${V2rayUnlockVideoSiteRuleText}]
             },
 EOM
     fi
 
 
     read -r -d '' xrayConfigProxyInput << EOM
-    
+
     ${v2rayConfigDNSInput}
     "outbounds": [
         {
@@ -5797,7 +6292,7 @@ EOM
             "tag":"IPv6_out",
             "protocol": "freedom",
             "settings": {
-                "domainStrategy": "UseIPv6" 
+                "domainStrategy": "UseIPv6"
             }
         },
         {
@@ -5814,7 +6309,7 @@ EOM
             "streamSettings": {
                 "network": "tcp"
             }
-        }      
+        }
     ],
     "routing": {
         "domainStrategy": "IPOnDemand",
@@ -5865,7 +6360,7 @@ EOM
 }
 EOM
 
-    
+
 
     if [[ "${isV2rayUnlockWarpModeInput}" == "1" && "${isV2rayUnlockGoogleInput}" == "1"  && "${isV2rayUnlockGoNetflixInput}" == [Nn]  ]]; then
         if [[ "${isV2rayUnlockDNSInput}" == [Nn] ]]; then
@@ -5890,7 +6385,7 @@ EOM
 
         fi
     else
-        
+
         # https://stackoverflow.com/questions/31091332/how-to-use-sed-to-delete-multiple-lines-when-the-pattern-is-matched-and-stop-unt/31091398
         sed -i '/outbounds/,/^&/d' ${configAirUniverseXrayConfigFilePath}
         cat >> ${configAirUniverseXrayConfigFilePath} <<-EOF
@@ -5929,7 +6424,7 @@ EOF
 function updateGeoIp(){
     wget -O /usr/local/share/xray/geoip.dat https://github.com/v2fly/geoip/releases/latest/download/geoip.dat
     wget -O /usr/local/share/xray/geosite.dat https://github.com/v2fly/domain-list-community/releases/latest/download/dlc.dat
-    
+
     systemctl restart xray.service
     airu restart
 
@@ -5937,9 +6432,9 @@ function updateGeoIp(){
 
 function manageAirUniverse(){
     echo -e ""
-    green " =================================================="       
+    green " =================================================="
     echo "    Air-Universe 管理脚本使用方法: "
-    echo 
+    echo
     echo "airu              - 显示管理菜单 (功能更多)"
     echo "airu start        - 启动 Air-Universe"
     echo "airu stop         - 停止 Air-Universe"
@@ -5955,7 +6450,7 @@ function manageAirUniverse(){
     echo "------------------------------------------"
     green " Air-Universe 配置文件 ${configAirUniverseConfigFilePath} "
     green " Xray 配置文件 ${configAirUniverseXrayConfigFilePath}"
-    green " =================================================="    
+    green " =================================================="
     echo
 }
 
@@ -5964,13 +6459,13 @@ function manageAirUniverse(){
 function removeAirUniverse(){
     rm -rf /usr/local/etc/xray
     /root/airu_install.sh uninstall
-    rm -f /usr/bin/airu 
+    rm -f /usr/bin/airu
     rm -f /usr/local/bin/au
     rm -f /usr/local/bin/xray
-    
+
     rm -rf ${configSSLCertPathV2board}
 
-    crontab -r 
+    crontab -r
     green " crontab 定时任务 已清除!"
     echo
 
@@ -6055,7 +6550,7 @@ function installShareNetflixAccount(){
     red " 请务必用于私人用途 不要公开分享. Netflix也限制了同时在线人数"
     green " ================================================== "
 
-    promptContinueOpeartion 
+    promptContinueOpeartion
 
     echo
     read -p "是否生成随机的 端口号? 直接回车默认 34567 不生成随机端口号, 请输入[y/N]:" isNetflixMimePortInput
@@ -6122,10 +6617,10 @@ cat > ${netflixMitmToolDownloadFolder}/netflix_mitm_readme <<-EOF
 1. 证书文件已生成, 默认在目录的 ${netflixMitmToolDownloadFolder}/ca/cert.crt 文件夹下, 请把cert.crt下载到本地
 2. 在你自己的客户端机器上,安装好证书cert.crt 然后开启 http 代理, 代理服务器地址为:你的ip:${configNetflixMitmPort}
 
-chrome 可以用 SwitchyOmega 插件作为 http代理 https://github.com/FelisCatus/SwitchyOmega 
+chrome 可以用 SwitchyOmega 插件作为 http代理 https://github.com/FelisCatus/SwitchyOmega
 
-新建一个情景例如名字叫奈飞代理 输入代理http服务器 你的ip 端口 ${configNetflixMitmPort}   
- 
+新建一个情景例如名字叫奈飞代理 输入代理http服务器 你的ip 端口 ${configNetflixMitmPort}
+
 然后在自动切换 菜单里面 添加奈飞的几个域名 选择走奈飞代理这个情景 就可以了
 
 netflix.com
@@ -6137,7 +6632,7 @@ nflxvideo.net
 
 
 3. 第一次使用需要上传的已登录Netflix账号的 cookie, 具体方法如下
-使用Netflix账号登录Netflix官网. 然后安装 EditThisCookie 这个浏览器插件. 添加一个key为admin, value 值为 ${configNetflixMitmToken} 
+使用Netflix账号登录Netflix官网. 然后安装 EditThisCookie 这个浏览器插件. 添加一个key为admin, value 值为 ${configNetflixMitmToken}
 
 一切已经完成, 其他设备就可以安装证书cert.crt, 使用http代理填入你的ip:${configNetflixMitmPort}, 就可以不需要账号看奈菲了
 
@@ -6189,7 +6684,7 @@ function removeShareNetflixAccount(){
         green " ================================================== "
         green "  Netflix账号共享服务器端程序 mitm-vip-unlocker 卸载完毕 !"
         green " ================================================== "
-        
+
     else
         red " 系统没有安装 Netflix账号共享服务器端程序 mitm-vip-unlocker, 退出卸载"
     fi
@@ -6219,9 +6714,165 @@ function removeShareNetflixAccount(){
 
 
 
+configAuroraDockerPath="${HOME}/aurora/docker"
+configAuroraDockerDataPath="${HOME}/aurora/docker/data"
+
+configAurora_PORT="8082"
+configFreegpt35_PORT="3042"
+configChatGPTNextWeb_PORT="3002"
+configChatGPT_Password="123456gpt"
+
+configAurora_Domain="aurora.example.com"
+configGPT_API_Domain="chatgptapi.example.com"
+
+function installAURORA(){
+    echo
+    green " ================================================== "
+    yellow " Prepare to install Aurora"
+    yellow " Aurora is a self-hosted free GPT"
+    green " ================================================== "
+
+    if [[ -d "${configAuroraDockerPath}" ]]; then
+        showHeaderRed " Aurora already installed !"
+        exit
+    fi
+    showHeaderGreen "Start to install Aurora. A self-hosted free GPT"
+
+    ${sudoCmd} mkdir -p "${configAuroraDockerPath}"
+    ${sudoCmd} chmod -R 774 "${configAuroraDockerPath}"
+    cd "${configAuroraDockerPath}" || exit
+
+    echo
+    read -r -p "Pls input Server PORT? 直接回车默认 8082 , 请输入纯数字:" configAurora_PORT
+    configAurora_PORT=${configAurora_PORT:-8082}
+
+    echo
+    read -r -p "Pls input Freegpt35 PORT? 直接回车默认 3042 , 请输入纯数字:" configFreegpt35_PORT
+    configFreegpt35_PORT=${configFreegpt35_PORT:-3042}
+
+    echo
+    read -r -p "Pls input ChatGPTNextWeb PORT? 直接回车默认 3002 , 请输入纯数字:" configChatGPTNextWeb_PORT
+    configChatGPTNextWeb_PORT=${configChatGPTNextWeb_PORT:-3002}
+
+    echo
+    read -r -p "Pls input Domain? Default is aurora.example.com:" configAurora_Domain
+    configAurora_Domain=${configAurora_Domain:-aurora.example.com}
+
+    echo
+    read -r -p "Pls input ChatGPT API Domain? Default is chatgptapi.example.com:" configGPT_API_Domain
+    configGPT_API_Domain=${configGPT_API_Domain:-chatgptapi.example.com}
 
 
 
+    cat > "${configAuroraDockerPath}/docker-compose.yml" <<-EOF
+
+version: '3'
+
+services:
+    aurora:
+        image: ghcr.io/aurora-develop/aurora:latest
+        container_name: aurora_app1
+        restart: unless-stopped
+        ports:
+            - "${configAurora_PORT}:8080"
+        environment:
+            - BASE_URL=https://auroraxf.glitch.me/api
+
+    freegpt35:
+        image: missuo/freegpt35:latest
+        container_name: freegpt35_app1
+        restart: unless-stopped
+        ports:
+            - "${configFreegpt35_PORT}:3040"
+
+    chatgptnextweb:
+        image: yidadaa/chatgpt-next-web
+        container_name: chatgptnextweb1
+        ports:
+            - "${configChatGPTNextWeb_PORT}:3000"
+        environment:
+            OPENAI_API_KEY: "gptyyds"
+            CODE: "${configChatGPT_Password}" # 如果你想要设置页面的访问密码，请修改这里
+            BASE_URL: "http://freegpt35:3040"
+            CUSTOM_MODELS: "-all,+gpt-3.5-turbo"
+        depends_on:
+            - freegpt35
+
+EOF
+
+    green " ================================================== "
+    echo
+    green "是否安装 Nginx web服务器, 安装Nginx可以提高安全性并提供更多功能"
+    green "如要安装 Nginx 需要提供域名, 并设置好域名DNS已解析到本机IP"
+    echo
+    read -r -p "是否安装 Nginx web服务器? 直接回车默认安装, 请输入[Y/n]:" isNginxInstallInput
+    isNginxInstallInput=${isNginxInstallInput:-Y}
+
+
+    if [[ "${isNginxInstallInput}" == [Yy] ]]; then
+        isInstallNginx="true"
+        configSSLCertPath="${configSSLCertPath}/freegpt35"
+        getHTTPSCertificateStep1
+        configInstallNginxMode="freegpt35"
+        installWebServerNginx
+
+        ${sudoCmd} systemctl restart nginx.service
+    fi
+
+
+    echo
+    docker pull ghcr.io/aurora-develop/aurora:latest
+    echo
+    docker pull missuo/freegpt35:latest
+    echo
+    docker pull yidadaa/chatgpt-next-web
+    echo
+    docker-compose up -d
+    echo
+
+    showHeaderGreen "Aurora Server install success !  " \
+    "Visit: ${configAurora_Domain}:${configAurora_PORT}" \
+    "Visit: ${configSSLDomain}" \
+    "Password: ${configChatGPT_Password}" \
+    "Aurora DockerCompose Config : ${configAuroraDockerPath}/docker-compose.yml" \
+    "Aurora Logs: docker-compose logs -f -t " \
+    "Run following command to test: "
+
+    echo "curl --location 'http://127.0.0.1:8082/v1/chat/completions' --header 'Content-Type: application/json' --data '{\"model\": \"gpt-3.5-turbo\", \"messages\": [{\"role\": \"user\", \"content\": \"Say this is a test!\"}], \"stream\": true}'"
+    echo
+    echo "curl --location 'http://127.0.0.1:3042/v1/chat/completions' -H 'Content-Type: application/json' -H 'Authorization: Bearer ${configChatGPT_Password}' --data '{\"model\": \"gpt-3.5-turbo\", \"messages\": [{\"role\": \"user\", \"content\": \"Say this is a test!\"}], \"stream\": true}'"
+
+}
+
+function removeAURORA(){
+
+    echo
+    read -r -p "Are you sure to uninstall Aurora? 直接回车默认卸载, 请输入[Y/n]:" isRemoveAuroraInput
+    isRemoveAuroraInput=${isRemoveAuroraInput:-Y}
+
+    if [[ "${isRemoveAuroraInput}" == [Yy] ]]; then
+        if [[ -d "${configAuroraDockerPath}" ]]; then
+            echo
+            showHeaderGreen "Prepare to remove Aurora"
+
+            cd ${configAuroraDockerPath} || exit
+            docker-compose down
+
+            rm -rf "${configAuroraDockerPath}"
+
+            if [[ -f "${nginxConfigSiteConfPath}/aurora_site.conf" ]]; then
+                rm -f "${nginxConfigSiteConfPath}/aurora_site.conf"
+                systemctl restart nginx.service
+            fi
+
+            showHeaderGreen "Aurora removed success !"
+
+        else
+            showHeaderRed "系统没有安装 Aurora Server, 退出卸载"
+        fi
+    fi
+    removeNginx
+}
 
 
 
@@ -6237,7 +6888,7 @@ function runOpenVPNSocks(){
 
     green "docker run -it --rm --device=/dev/net/tun --cap-add=NET_ADMIN  --name openvpn-client  --volume ${openVPNSocksFolder}/:/etc/openvpn/:ro -p 10808:1080  kizzx2/openvpn-client-socks"
     docker run -it --rm --device=/dev/net/tun --cap-add=NET_ADMIN  --name openvpn-client  --volume ${openVPNSocksFolder}/:/etc/openvpn/:ro -p 10808:1080  kizzx2/openvpn-client-socks
- 
+
     curl --proxy socks5h://localhost:10808 ipinfo.io
     curl --proxy socks5h://localhost:10808 http://ip111.cn/
 }
@@ -6252,39 +6903,57 @@ function startMenuOther(){
     clear
 
     if [[ ${configLanguage} == "cn" ]] ; then
-    
+
         green " =================================================="
+        echo
+        green " 11. 安装 Air-Universe 服务器端"
+        red " 12. 卸载 Air-Universe"
+        green " 13. 停止, 重启, 查看日志等, 管理 Air-Universe 服务器端"
+        green " 14. 配合 WARP (Wireguard) 使用IPV6 解锁 google人机验证和 Netflix等流媒体网站"
+        green " 15. 升级或降级 Air-Universe 到 1.0.0 or 0.9.2, 降级 Xray 到 1.5或1.4"
+        green " 16. 重新申请证书 并修改 Air-Universe 配置文件 ${configAirUniverseConfigFilePath}"
+        green " 17. 更新 geoip.dat 和 geosite.dat 文件"
         echo
         green " 21. 安装 XrayR 服务器端"
         green " 22. 停止, 重启, 查看日志等, 管理 XrayR 服务器端"
-        green " 23. 编辑 XrayR 配置文件 ${configXrayRConfigFilePath}"        
+        green " 23. 编辑 XrayR 配置文件 ${configXrayRConfigFilePath}"
+        green " 24. 通过向导修改 XrayR 配置文件 ${configXrayRConfigFilePath}"
         echo
         green " 41. 安装 Soga 服务器端"
         green " 42. 停止, 重启, 查看日志等, 管理 Soga 服务器端"
         green " 43. 编辑 Soga 配置文件 ${configSogaConfigFilePath}"
         echo
-        green " 62. 安装共享Netflix账号服务器端, 可以不用奈菲账号直接看奈菲"
-        red " 63. 卸载共享Netflix账号服务器端"
+        green " 61. 安装共享Netflix账号服务器端, 可以不用奈菲账号直接看奈菲"
+        red " 62. 卸载共享Netflix账号服务器端"
         echo
         green " 71. 工具脚本合集 by BlueSkyXN "
         green " 72. 工具脚本合集 by jcnf "
         echo
         green " 9. 返回上级菜单"
-        green " 0. 退出脚本"    
+        green " 0. 退出脚本"
 
     else
         green " =================================================="
         echo
+        green " 11. Install Air-Universe server side "
+        red " 12. Remove Air-Universe"
+        green " 13. Stop, restart, show log, manage Air-Universe server side "
+        green " 14. Using WARP (Wireguard) and IPV6 Unlock Netflix geo restriction and avoid Google reCAPTCHA"
+        green " 15. Upgrade or downgrade Air-Universe to 1.0.0 or 0.9.2, downgrade Xray to 1.5 / 1.4"
+        green " 16. Redo to get a free SSL certificate for domain name and modify Air-Universe config file ${configAirUniverseConfigFilePath}"
+        green " 17. Update geoip.dat and geosite.dat "
+        echo
         green " 21. Install XrayR server side "
         green " 22. Stop, restart, show log, manage XrayR server side "
-        green " 23. Using VI open XrayR config file ${configXrayRConfigFilePath}"        
+        green " 23. Using VI open XrayR config file ${configXrayRConfigFilePath}"
+        green " 24. Step by Step to modify XrayR config file ${configXrayRConfigFilePath}"
         echo
         green " 41. Install Soga server side "
         green " 42. Stop, restart, show log, manage Soga server side "
         green " 43. Using VI open Soga config file ${configSogaConfigFilePath}"
         echo
-        green " 62. Install Netflix account share service server, Play Netflix without Netflix account"
-        red " 63. Remove Netflix account share service server"    
+        green " 61. Install Netflix account share service server, Play Netflix without Netflix account"
+        red " 62. Remove Netflix account share service server"
         echo
         green " 71. toolkit by BlueSkyXN "
         green " 72. toolkit by jcnf "
@@ -6296,8 +6965,30 @@ function startMenuOther(){
 
 
     echo
-    read -p "Please input number:" menuNumberInput
+    read -r -p "Please input number:" menuNumberInput
     case "$menuNumberInput" in
+        11 )
+            setLinuxDateZone
+            installAirUniverse
+        ;;
+        12 )
+            removeAirUniverse
+        ;;
+        13 )
+            manageAirUniverse
+        ;;
+        14 )
+            replaceAirUniverseConfigWARP
+        ;;
+        15 )
+            downgradeXray
+        ;;
+        16 )
+            installAirUniverse "ssl"
+        ;;
+        17 )
+            updateGeoIp
+        ;;
         21 )
             setLinuxDateZone
             installXrayR
@@ -6307,21 +6998,24 @@ function startMenuOther(){
         ;;
         23 )
             editXrayRConfig
-        ;;    
+        ;;
+        24 )
+            replaceXrayRConfig
+        ;;
         41 )
             setLinuxDateZone
-            installSoga 
+            installSoga
         ;;
         42 )
             manageSoga
-        ;;                                        
+        ;;
         43 )
             editSogaConfig
         ;;
-        62 )
+        61 )
             installShareNetflixAccount
         ;;
-        63 )
+        62 )
             removeShareNetflixAccount
         ;;
         71 )
@@ -6329,7 +7023,7 @@ function startMenuOther(){
         ;;
         72 )
             toolboxJcnf
-        ;;        
+        ;;
         9)
             start_menu
         ;;
@@ -6371,7 +7065,7 @@ function start_menu(){
 
     if [[ ${configLanguage} == "cn" ]] ; then
     green " =================================================="
-    green " Linux 常用工具 一键安装脚本 | 2023-7-10 | 系统支持：centos7+ / debian9+ / ubuntu16.04+"
+    green " Linux 常用工具 一键安装脚本 | 2024-4-6 | 系统支持：centos7+ / debian9+ / ubuntu16.04+"
     green " =================================================="
     green " 1. 安装 linux 内核 BBR Plus, 安装 WireGuard, 用于解锁 Netflix 限制 和避免弹出 Google reCAPTCHA 人机验证"
     echo
@@ -6392,24 +7086,26 @@ function start_menu(){
     green " 23. 安装/更新/删除 Alist 云盘文件列表系统 "
     echo
     green " 28. 安装 CasaOS 系统(包括 Nextcloud 云盘 和 AdGuard DNS 等)  "
-    red " 29. 卸载 CasaOS 系统 " 
+    red " 29. 卸载 CasaOS 系统 "
     echo
-    green " 31. 安装 Grist 在线Excel表格(类似 Airtable) "
-    red " 32. 卸载 Grist 在线Excel表格 " 
-    green " 33. 安装 NocoDB 在线Excel表格(类似 Airtable) "
-    red " 34. 卸载 NocoDB 在线Excel表格 " 
-    green " 35. 安装 Etherpad 多人协作文档(类似 Word) "
-    red " 36. 卸载 Etherpad 多人协作文档 "     
+    green " 31. 安装 Ghost Blog 博客系统 "
+    red " 32. 卸载 Ghost Blog 博客系统 "
+    green " 33. 安装 Joplin Server 笔记(类似 Evernote) "
+    red " 33. 卸载 Joplin Server 笔记 "
+    green " 35. 安装 Linkwarden 网络书签(类似 Pocket) "
+    red " 36. 卸载 Linkwarden 网络书签 "
     echo
-    green " 41. 安装 Ghost Blog 博客系统 "
-    red " 42. 卸载 Ghost Blog 博客系统 "
-    green " 43. 安装 Joplin Server 笔记(类似 Evernote) "
-    red " 44. 卸载 Joplin Server 笔记 " 
+    green " 41. 安装 AFFiNE Server 多人协作笔记(类似 Notion) "
+    red " 42. 卸载 AFFiNE Server 多人协作笔记 "
+    green " 43. 安装 Outline Server 多人协作笔记(类似 Notion) "
+    red " 44. 卸载 Outline Server 多人协作笔记 "
     echo
-    green " 51. 安装 AFFiNE Server 多人协作笔记(类似 Notion) "
-    red " 52. 卸载 AFFiNE Server 多人协作笔记 "     
-    green " 53. 安装 Outline Server 多人协作笔记(类似 Notion) "
-    red " 54. 卸载 Outline Server 多人协作笔记 " 
+    green " 51. 安装 Grist 在线Excel表格(类似 Airtable) "
+    red " 52. 卸载 Grist 在线Excel表格 "
+    green " 53. 安装 NocoDB 在线Excel表格(类似 Airtable) "
+    red " 54. 卸载 NocoDB 在线Excel表格 "
+    green " 55. 安装 Etherpad 多人协作文档(类似 Word) "
+    red " 56. 卸载 Etherpad 多人协作文档 "
     echo
     green " 61. 安装视频会议系统 Jitsi Meet "
     red " 62. 卸载 Jitsi Meet "
@@ -6420,13 +7116,8 @@ function start_menu(){
     green " 67. 安装 Mattermost Boards Server 项目管理看板 (类似 Trello) "
     red " 68. 卸载 Mattermost Boards Server "
     echo
-    green " 81. 安装 Air-Universe 服务器端"
-    red " 82. 卸载 Air-Universe"
-    green " 83. 停止, 重启, 查看日志等, 管理 Air-Universe 服务器端"
-    green " 84. 配合 WARP (Wireguard) 使用IPV6 解锁 google人机验证和 Netflix等流媒体网站"
-    green " 85. 升级或降级 Air-Universe 到 1.0.0 or 0.9.2, 降级 Xray 到 1.5或1.4"
-    green " 86. 重新申请证书 并修改 Air-Universe 配置文件 ${configAirUniverseConfigFilePath}"
-    green " 87. 更新 geoip.dat 和 geosite.dat 文件"
+    green " 81. 安装 AURORA 与 FreeGPT35 免费GPT"
+    red " 82. 卸载 AURORA 与 FreeGPT35"
     echo
     green " 89. 子菜单 安装 V2board 服务器端 XrayR, V2Ray-Poseidon, Soga"
     green " 90. 单独申请域名SSL证书"
@@ -6436,7 +7127,7 @@ function start_menu(){
 
     else
     green " =================================================="
-    green " Linux tools installation script | 2023-7-10 | OS support：centos7+ / debian9+ / ubuntu16.04+"
+    green " Linux tools installation script | 2024-4-6 | OS support：centos7+ / debian9+ / ubuntu16.04+"
     green " =================================================="
     green " 1. Install linux kernel,  bbr plus kernel, WireGuard and Cloudflare WARP. Unlock Netflix geo restriction and avoid Google reCAPTCHA"
     echo
@@ -6457,41 +7148,39 @@ function start_menu(){
     green " 23. Install/Update/Remove Alist file list storage system "
     echo
     green " 28. Install CasaOS(Including Nextcloud, AdGuard DNS )  "
-    red " 29. Remove CasaOS "     
+    red " 29. Remove CasaOS "
     echo
-    green " 31. Install Grist Online Spreadsheet (Airtable alternative)"
-    red " 32. Remove Grist Online Spreadsheet "
-    green " 33. Install NocoDB Online Spreadsheet (Airtable alternative)"
-    red " 34. Remove NocoDB Online Spreadsheet "
-    green " 35. Install Etherpad collaborative editor (Word alternative)"
-    red " 36. Remove Etherpad collaborative editor "
+    green " 31. Install Ghost Blog "
+    red " 32. Remove Ghost Blog "
+    green " 33. Install Joplin Server (Evernote alternative) "
+    red " 34. Remove Joplin Server "
+    green " 35. Install Linkwarden (Pocket alternative) "
+    red " 36. Remove Linkwarden"
     echo
-    green " 41. Install Ghost Blog "
-    red " 42. Remove Ghost Blog "
-    green " 43. Install Joplin Server (Evernote alternative) "
-    red " 44. Remove Joplin Server "
+    green " 41. Install AFFiNE Server (Notion alternative) "
+    red " 42. Remove AFFiNE Server "
+    green " 43. Install Outline Server (Notion alternative) "
+    red " 44. Remove Outline Server "
     echo
-    green " 51. Install AFFiNE Server (Notion alternative) "
-    red " 52. Remove AFFiNE Server "    
-    green " 53. Install Outline Server (Notion alternative) "
-    red " 54. Remove Outline Server "
-    echo       
+    green " 51. Install Grist Online Spreadsheet (Airtable alternative)"
+    red " 52. Remove Grist Online Spreadsheet "
+    green " 53. Install NocoDB Online Spreadsheet (Airtable alternative)"
+    red " 54. Remove NocoDB Online Spreadsheet "
+    green " 55. Install Etherpad collaborative editor (Word alternative)"
+    red " 56. Remove Etherpad collaborative editor "
+    echo
+
     green " 61. Install Jitsi Meet video conference system"
     red " 62. Remove Jitsi Meet video conference system"
-    green " 63. Modify Jitsi Meet whether to Start a meeting requires password authentication"
+    green " 63. Modify Jitsi Meet config to requires password authentication"
     echo
     green " 65. Install Focalboard Personal Server (Trello alternative) "
-    red " 66. Remove Focalboard Personal Server "    
+    red " 66. Remove Focalboard Personal Server "
     green " 67. Install Mattermost Boards Server (Trello alternative) "
-    red " 68. Remove Mattermost Boards Server "   
+    red " 68. Remove Mattermost Boards Server "
     echo
-    green " 81. Install Air-Universe server side "
-    red " 82. Remove Air-Universe"
-    green " 83. Stop, restart, show log, manage Air-Universe server side "
-    green " 84. Using WARP (Wireguard) and IPV6 Unlock Netflix geo restriction and avoid Google reCAPTCHA"
-    green " 85. Upgrade or downgrade Air-Universe to 1.0.0 or 0.9.2, downgrade Xray to 1.5 / 1.4"
-    green " 86. Redo to get a free SSL certificate for domain name and modify Air-Universe config file ${configAirUniverseConfigFilePath}"
-    green " 87. Update geoip.dat and geosite.dat "
+    green " 81. Install AURORA and FreeGPT35 Free GPT"
+    red " 82. Remove AURORA and FreeGPT35"
     echo
     green " 89. Submenu. install XrayR, V2Ray-Poseidon, Soga for V2board panel"
     green " 90. Get a free SSL certificate for domain name only"
@@ -6503,11 +7192,11 @@ function start_menu(){
 
 
     echo
-    read -p "Please input number:" menuNumberInput
+    read -r -p "Please input number:" menuNumberInput
     case "$menuNumberInput" in
         1 )
             installWireguard
-        ;;    
+        ;;
         3 )
             editLinuxLoginWithPublicKey
         ;;
@@ -6538,13 +7227,13 @@ function start_menu(){
             installDocker
         ;;
         14 )
-            removeDocker 
+            removeDocker
         ;;
         15 )
             addDockerRegistry
         ;;
         16 )
-            installPortainer 
+            installPortainer
         ;;
         21 )
             installCloudreve
@@ -6562,47 +7251,54 @@ function start_menu(){
             removeCasaOS
         ;;
         31 )
-            installGrist
-        ;;
-        32 )
-            removeGrist
-        ;;
-        33 )
-            installNocoDB
-        ;;
-        34 )
-            removeNocoDB
-        ;;
-        35 )
-            installEtherpad
-        ;;
-        36 )
-            removeEtherpad
-        ;;
-        41 )
             installCMSGhost
         ;;
-        42 )
+        32 )
             removeCMSGhost
         ;;
-        43 )
+        33 )
             installJoplin
         ;;
-        44 )
+        34 )
             removeJoplin
         ;;
-        51 )
+        35 )
+            installLinkwarden
+        ;;
+        36 )
+            removeLinkwarden
+        ;;
+        41 )
             installAffine
         ;;
-        52 )
+        42 )
             removeAffine
         ;;
-        53 )
+        43 )
             installOutline
         ;;
-        54 )
+        44 )
             removeOutline
         ;;
+        51 )
+            installGrist
+        ;;
+        52 )
+            removeGrist
+        ;;
+        53 )
+            installNocoDB
+        ;;
+        54 )
+            removeNocoDB
+        ;;
+        55 )
+            installEtherpad
+        ;;
+        56 )
+            removeEtherpad
+        ;;
+
         61 )
             installJitsiMeet
         ;;
@@ -6624,54 +7320,32 @@ function start_menu(){
         68 )
             removeMattermostBoards
         ;;
-
         81 )
-            setLinuxDateZone
-            installAirUniverse
+            installAURORA
         ;;
         82 )
-            removeAirUniverse
-        ;;                                        
-        83 )
-            manageAirUniverse
-        ;;                                        
-        84 )
-            replaceAirUniverseConfigWARP
+            removeAURORA
         ;;
-        85 )
-            downgradeXray
-        ;;
-        86 )
-            installAirUniverse "ssl"
-        ;;
-        87 )
-            updateGeoIp
-        ;;
-        89 )
-            startMenuOther
-        ;;        
         90 )
             getHTTPSCertificateStep1
         ;;
-        88 )
-            upgradeScript
+        91 )
+            testCMSGhost
+        ;;
+        96 )
+            warpGoCheckIpv6
+            warpGoCrontab
+        ;;
+        98 )
+            replaceXrayRConfig
         ;;
         99 )
-                su - ghostsite << EOF
-    echo "--------------------"
-    echo "Current user: $(whoami)"
-    whoami
-    $(whoami)
-    # ghost install --port 3468 --db=sqlite3 --no-prompt --dir ${configGhostSitePath} --url https://${configSSLDomain}
-    echo "--------------------"
-EOF
-whoami
-sudo -u ghostsite bash << EOF
-echo "In"
-whoami
-EOF
-echo "Out"
-whoami
+            setLinuxDateZone
+            installXrayR
+        ;;
+
+        88 )
+            upgradeScript
         ;;
         0 )
             exit 1
@@ -6695,10 +7369,10 @@ function setLanguage(){
     green " =================================================="
     green " Please choose your language"
     green " 1. English"
-    green " 2. 中文"  
+    green " 2. 中文"
     echo
     read -r -p "Please input your language:" languageInput
-    
+
     case "${languageInput}" in
         1 )
             echo "en" > ${configLanguageFilePath}

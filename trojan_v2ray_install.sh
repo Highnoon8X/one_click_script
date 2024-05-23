@@ -1,10 +1,10 @@
 #!/bin/bash
 
 export LC_ALL=C
-#export LANG=C
 export LANG=en_US.UTF-8
 export LANGUAGE=en_US.UTF-8
-
+export LC_COLLATE=C
+export LC_CTYPE=en_US.UTF-8
 
 sudoCmd=""
 if [[ $(/usr/bin/id -u) -ne 0 ]]; then
@@ -146,7 +146,7 @@ getLinuxOSVersion(){
         . /etc/lsb-release
         osInfo=$DISTRIB_ID
         osReleaseVersionNo=$DISTRIB_RELEASE
-        
+
     elif [ -f /etc/debian_version ]; then
         # Older Debian/Ubuntu/etc.
         osInfo=Debian
@@ -314,7 +314,7 @@ function testLinuxPortUsage(){
         else
             ufw disable
         fi
-        
+
     elif [ "$osRelease" == "debian" ]; then
         $osSystemPackage update -y
     fi
@@ -351,8 +351,6 @@ function checkPortUsage(){
     fi
 
 }
-
-
 
 
 
@@ -411,7 +409,7 @@ function setLinuxRootLogin(){
     fi
 
     if [ "$osRelease" == "ubuntu" ] || [ "$osRelease" == "debian" ] ; then
-        
+
         ${sudoCmd} service ssh restart
         ${sudoCmd} systemctl restart ssh
 
@@ -448,12 +446,12 @@ function changeLinuxSSHPort(){
 
 
             if command -v firewall-cmd &> /dev/null; then
-                firewall-cmd --permanent --zone=public --add-port=$osSSHLoginPortInput/tcp 
+                firewall-cmd --permanent --zone=public --add-port=$osSSHLoginPortInput/tcp
                 firewall-cmd --reload
             else
                 red "firewall-cmd command is not installed"
             fi
-    
+
             ${sudoCmd} systemctl restart sshd.service
 
         fi
@@ -491,7 +489,7 @@ function setLinuxDateZone(){
     echo
     if [[ ${tempCurrentDateZone} == "+0800" ]]; then
         yellow "当前时区已经为北京时间  $tempCurrentDateZone | $(date -R) "
-    else 
+    else
         green " =================================================="
         yellow " 当前时区为: $tempCurrentDateZone | $(date -R) "
         yellow " 是否设置时区为北京时间 +0800区, 以便cron定时重启脚本按照北京时间运行."
@@ -514,7 +512,7 @@ function setLinuxDateZone(){
     fi
     echo
 
-    if [ "$osRelease" == "centos" ]; then   
+    if [ "$osRelease" == "centos" ]; then
         if  [[ ${osReleaseVersionNoShort} == "7" ]]; then
             systemctl stop chronyd
             systemctl disable chronyd
@@ -534,7 +532,7 @@ function setLinuxDateZone(){
             if command -v firewall-cmd &> /dev/null; then
                 firewall-cmd --permanent --add-service=ntp
                 firewall-cmd --reload
-            fi 
+            fi
 
             echo ""
             echo "chrony sources:"
@@ -544,12 +542,17 @@ function setLinuxDateZone(){
             echo ""
             echo ""
         fi
-        
+
     else
-        $osSystemPackage install -y ntp
-        systemctl enable ntp
-        systemctl restart ntp
-    fi    
+        if [[ "${osReleaseVersionNoShort}" == "12" ]]; then
+            systemctl restart systemd-timesyncd
+            timedatectl timesync-status
+        else
+            $osSystemPackage install -y ntp
+            systemctl enable ntp
+            systemctl restart ntp
+        fi
+    fi
 }
 
 
@@ -564,7 +567,7 @@ function installSoftDownload(){
 
     if [[ "${osRelease}" == "debian" || "${osRelease}" == "ubuntu" ]]; then
 
-        PACKAGE_LIST=( "wget" "curl" "git" "unzip" "apt-transport-https" "cpu-checker" )
+        PACKAGE_LIST=( "wget" "curl" "git" "unzip" "apt-transport-https" "cpu-checker" "bc" "cron" )
 
         # 检查所有软件包是否已安装
         for package in "${PACKAGE_LIST[@]}"; do
@@ -593,7 +596,7 @@ function installSoftDownload(){
             ${sudoCmd} dnf distro-sync -y
         fi
 
-        PACKAGE_LIST_Centos=( "wget" "curl" "git" "unzip" )
+        PACKAGE_LIST_Centos=( "wget" "curl" "git" "unzip" "glibc-langpack-en" )
 
         # 检查所有软件包是否已安装
         for package in "${PACKAGE_LIST_Centos[@]}"; do
@@ -617,7 +620,7 @@ function installPackage(){
     # sed -i '1s/^/nameserver 1.1.1.1 \n/' /etc/resolv.conf
 
     if [ "$osRelease" == "centos" ]; then
-       
+
         # rpm -Uvh http://nginx.org/packages/centos/7/noarch/RPMS/nginx-release-centos-7-0.el7.ngx.noarch.rpm
         rm -f /etc/yum.repos.d/nginx.repo
         # cat > "/etc/yum.repos.d/nginx.repo" <<-EOF
@@ -627,7 +630,7 @@ function installPackage(){
 # gpgcheck=0
 # enabled=1
 # sslverify=0
-# 
+#
 # EOF
 
         PACKAGE_LIST=("zip" "unzip" "tar" "iputils" "htop" "redhat-lsb-core" "epel-release" "bind-utils" "net-tools" "xz" "jq" "iperf3" )
@@ -643,7 +646,7 @@ function installPackage(){
         done
 
         yum clean all
-        
+
         ${osSystemPackage} update -y
 
 
@@ -659,12 +662,12 @@ function installPackage(){
             ${sudoCmd} yum module -y enable nginx:1.22
             ${sudoCmd} yum module list nginx
         fi
-        
+
     elif [ "$osRelease" == "ubuntu" ]; then
-        
+
         # https://joshtronic.com/2018/12/17/how-to-install-the-latest-nginx-on-debian-and-ubuntu/
         # https://www.nginx.com/resources/wiki/start/topics/tutorials/install/
-        
+
         $osSystemPackage install -y gnupg2 curl ca-certificates lsb-release ubuntu-keyring
         # wget -O - https://nginx.org/keys/nginx_signing.key | ${sudoCmd} apt-key add -
         curl https://nginx.org/keys/nginx_signing.key | gpg --dearmor | sudo tee /usr/share/keyrings/nginx-archive-keyring.gpg >/dev/null
@@ -693,7 +696,8 @@ EOF
             ${osSystemPackage} install -y xz-utils jq lsb-core lsb-release
             ${osSystemPackage} install -y iputils-ping
             ${osSystemPackage} install -y iperf3
-        fi    
+            ${osSystemPackage} install -y cron
+        fi
 
     elif [ "$osRelease" == "debian" ]; then
         # ${sudoCmd} add-apt-repository ppa:nginx/stable -y
@@ -701,7 +705,7 @@ EOF
 
         ${osSystemPackage} install -y gnupg2
         ${osSystemPackage} install -y curl ca-certificates lsb-release
-        wget https://nginx.org/keys/nginx_signing.key -O- | apt-key add - 
+        wget https://nginx.org/keys/nginx_signing.key -O- | apt-key add -
 
         rm -f /etc/apt/sources.list.d/nginx.list
         if [[ "${osReleaseVersionNoShort}" == "12" ]]; then
@@ -721,7 +725,7 @@ EOF
             ${osSystemPackage} install -y xz-utils jq lsb-core lsb-release
             ${osSystemPackage} install -y iputils-ping
             ${osSystemPackage} install -y iperf3
-        fi        
+        fi
     fi
 }
 
@@ -740,7 +744,7 @@ function installSoftEditor(){
         green " =================================================="
     fi
 
-    if [ "$osRelease" == "centos" ]; then   
+    if [ "$osRelease" == "centos" ]; then
         $osSystemPackage install -y xz  vim-minimal vim-enhanced vim-common nano
     else
         $osSystemPackage install -y vim-gui-common vim-runtime vim nano
@@ -814,6 +818,8 @@ function installSoftOhMyZsh(){
         zshAutosuggestionsConfig=${HOME}/.oh-my-zsh/custom/plugins/zsh-autosuggestions/zsh-autosuggestions.zsh
         sed -i "s/ZSH_AUTOSUGGEST_HIGHLIGHT_STYLE='fg=8'/ZSH_AUTOSUGGEST_HIGHLIGHT_STYLE='fg=1'/" $zshAutosuggestionsConfig
 
+        sed -i "s/# zstyle ':omz:update' mode disabled/zstyle ':omz:update' mode disabled/" $zshConfig
+
 
         # Actually change the default shell to zsh
         zsh=$(which zsh)
@@ -847,7 +853,7 @@ function installSoftOhMyZsh(){
 # 更新本脚本
 function upgradeScript(){
     wget -Nq --no-check-certificate -O ./trojan_v2ray_install.sh "https://raw.githubusercontent.com/jinwyp/one_click_script/master/trojan_v2ray_install.sh"
-    green " 本脚本升级成功! "
+    green " Script upgrade successful. 本脚本升级成功! "
     chmod +x ./trojan_v2ray_install.sh
     sleep 2s
     exec "./trojan_v2ray_install.sh"
@@ -926,7 +932,7 @@ function vps_superspeed(){
 
     # bash <(curl -Lso- https://git.io/superspeed)
     #wget -N --no-check-certificate https://raw.githubusercontent.com/ernisn/superspeed/master/superspeed.sh && chmod +x superspeed.sh && ./superspeed.sh
-    
+
     #wget -N --no-check-certificate https://raw.githubusercontent.com/oooldking/script/master/superspeed.sh && chmod +x superspeed.sh && ./superspeed.sh
 }
 
@@ -1080,10 +1086,10 @@ downloadFilenameTrojan="trojan-${versionTrojan}-linux-amd64.tar.xz"
 versionTrojanGo="0.10.6"
 downloadFilenameTrojanGo="trojan-go-linux-amd64.zip"
 
-versionV2ray="4.45.2"
+versionV2ray="5.12.1"
 downloadFilenameV2ray="v2ray-linux-64.zip"
 
-versionXray="1.7.5"
+versionXray="1.8.7"
 downloadFilenameXray="Xray-linux-64.zip"
 
 versionTrojanWeb="2.10.5"
@@ -1178,15 +1184,15 @@ function downloadAndUnzip(){
         tar xf ${configDownloadTempPath}/$3 -C ${configDownloadTempPath}
 
         mv ${configDownloadTempPath}/* $2
-         
+
 
     elif [[ $3 == *"tar.gz"* ]]; then
         green "===== 下载并解压tar.gz文件: $3 "
         wget -O ${configDownloadTempPath}/$3 $1
         tar -xzvf ${configDownloadTempPath}/$3 -C ${configDownloadTempPath}
         mv ${configDownloadTempPath}/easymosdns/* $2
-        
-    else  
+
+    else
         green "===== 下载并解压zip文件:  $3 "
         wget -O ${configDownloadTempPath}/$3 $1
         unzip -d $2 ${configDownloadTempPath}/$3
@@ -1204,7 +1210,7 @@ function getGithubLatestReleaseVersion(){
 function getV2rayVersion(){
     # https://github.com/trojan-gfw/trojan/releases/download/v1.16.0/trojan-1.16.0-linux-amd64.tar.xz
 
-    echo 
+    echo
 
     if [[ $1 == "v2ray" ]] ; then
         echo
@@ -1231,29 +1237,30 @@ function getV2rayVersion(){
 
         if [[ $configV2rayWorkingMode == "vlessTCPREALITY" ]]; then
             tempXrayVersionDisplayText="1"
-            green " 请选择 Xray 的版本, 默认直接回车为 1.8.0 或以上的最新版本"
+            green " 请选择 Xray 的版本, 默认直接回车为 1.8.7 或以上的最新版本"
             echo
-            green " 1. 1.8.0 或以上的最新版本 支持 REALITY 和 XTLS Vision"
+            green " 1. 1.8.7 或以上的最新版本 支持 REALITY 和 XTLS Vision"
 
         elif [[ $configV2rayWorkingMode == "vlessTCPVision" ]]; then
-            green " 请选择 Xray 的版本, 默认直接回车为 1.7.5 (推荐)"
+            tempXrayVersionDisplayText="1"
+            green " 请选择 Xray 的版本, 默认直接回车为 1.8.7 或以上的最新版本"
             echo
-            green " 1. 1.8.0 或以上的最新版本 支持 REALITY 和 XTLS Vision"
-            green " 2. 1.7.5 支持 XTLS Vision (推荐)"
+            green " 1. 1.8.7 或以上的最新版本 支持 REALITY 和 XTLS Vision"
+            green " 2. 1.7.5 支持 XTLS Vision "
 
         else
-            green " 请选择 Xray 的版本, 默认直接回车为 1.7.5 (推荐)"
+            green " 请选择 Xray 的版本, 默认直接回车为 1.7.5"
             echo
             if [[ $2 == "update" ]]; then
-                red "升级 1.8.0 或以上版本可能导致 启动失败, 不兼容旧版 XTLS 配置!"
+                red "升级 1.8.7 或以上版本可能导致 启动失败, 不兼容旧版 XTLS 配置!"
                 echo
-                green " 1. 1.8.0 或以上的最新版本 支持 REALITY 和 XTLS Vision"
-            fi
-            
-            if [[ $2 == "shadowsocks" ]]; then
-                green " 1. 1.8.0 或以上的最新版本 支持 REALITY 和 XTLS Vision"
             fi
 
+            if [[ $2 == "shadowsocks" ]]; then
+                echo
+            fi
+
+            green " 1. 1.8.7 或以上的最新版本 支持 REALITY 和 XTLS Vision"
             green " 2. 1.7.5 支持 XTLS Vision (推荐)"
             green " 3. 1.6.1 (推荐)"
             green " 4. 1.6.0"
@@ -1307,7 +1314,7 @@ function getV2rayVersion(){
         else
             versionXray="1.7.5"
         fi
-        
+
         echo "versionXray: ${versionXray}"
     fi
 
@@ -1343,7 +1350,7 @@ isDomainSSLGoogleEABIdInput=""
 
 function getHTTPSCertificateCheckEmail(){
     if [ -z $2 ]; then
-        
+
         if [[ $1 == "email" ]]; then
             red " 输入邮箱地址不能为空, 请重新输入!"
             getHTTPSCertificateInputEmail
@@ -1352,7 +1359,7 @@ function getHTTPSCertificateCheckEmail(){
             getHTTPSCertificateInputGoogleEABKey
         elif [[ $1 == "googleEabId" ]]; then
             red " 输入EAB Id 不能为空, 请重新输入!"
-            getHTTPSCertificateInputGoogleEABId            
+            getHTTPSCertificateInputGoogleEABId
         fi
     fi
 }
@@ -1381,15 +1388,15 @@ configRanPath="${HOME}/ran"
 configSSLAcmeScriptPath="${HOME}/.acme.sh"
 configSSLCertPath="${configWebsiteFatherPath}/cert"
 
-configSSLCertKeyFilename="private.key"
-configSSLCertFullchainFilename="fullchain.cer"
+configSSLCertKeyFilename="server.key"
+configSSLCertFullchainFilename="server_fullchain.cert"
 
 
 function renewCertificationWithAcme(){
 
     # https://stackoverflow.com/questions/8880603/loop-through-an-array-of-strings-in-bash
     # https://stackoverflow.com/questions/9954680/how-to-store-directory-files-listing-into-an-array
-    
+
     shopt -s nullglob
     renewDomainArray=("${configSSLAcmeScriptPath}"/*ecc*)
 
@@ -1414,7 +1421,7 @@ function renewCertificationWithAcme(){
             green " 请选择要续签或要删除的域名:"
             echo
             for renewDomainName in "${renewDomainArray[@]}"; do
-                
+
                 substr=${renewDomainName##*/}
                 substr=${substr%_ecc*}
                 renewDomainArrayFix[${COUNTER1}]="$substr"
@@ -1426,7 +1433,7 @@ function renewCertificationWithAcme(){
             echo
             read -r -p "请选择域名? 请输入纯数字:" isRenewDomainSelectNumberInput
             isRenewDomainSelectNumberInput=${isRenewDomainSelectNumberInput:-99}
-        
+
             if [[ "$isRenewDomainSelectNumberInput" == "99" ]]; then
                 red " 输入错误, 请重新输入!"
                 echo
@@ -1461,13 +1468,13 @@ function renewCertificationWithAcme(){
                     echo
                     green " 域名 ${configSSLRenewDomain} 的证书已经删除成功!"
                     exit
-                fi  
+                fi
             else
                 echo
                 red " 您选择的域名 ${configSSLRenewDomain} 证书不存在！"
             fi
 
-        else 
+        else
             getHTTPSCertificateStep1
         fi
 
@@ -1499,16 +1506,16 @@ function getHTTPSCertificateWithAcme(){
     echo
     read -r -p "请选择证书提供商? 默认直接回车为通过 Letsencrypt.org 申请, 请输入纯数字:" isDomainSSLFromLetInput
     isDomainSSLFromLetInput=${isDomainSSLFromLetInput:-1}
-    
+
     if [[ "$isDomainSSLFromLetInput" == "2" ]]; then
-        
+
         acmeSSLDays="179"
         acmeSSLServerName="buypass"
         echo
         ${configSSLAcmeScriptPath}/acme.sh --register-account --accountemail ${acmeSSLRegisterEmailInput} --server buypass
-        
+
     elif [[ "$isDomainSSLFromLetInput" == "3" ]]; then
-        
+
         acmeSSLServerName="zerossl"
         echo
         ${configSSLAcmeScriptPath}/acme.sh --register-account -m ${acmeSSLRegisterEmailInput} --server zerossl
@@ -1517,11 +1524,11 @@ function getHTTPSCertificateWithAcme(){
         green " ================================================== "
         yellow " 请先按照如下链接申请 google Public CA  https://hostloc.com/thread-993780-1-1.html"
         yellow " 具体可参考 https://github.com/acmesh-official/acme.sh/wiki/Google-Public-CA"
-        
+
         acmeSSLServerName="google"
         getHTTPSCertificateInputGoogleEABKey
         getHTTPSCertificateInputGoogleEABId
-        ${configSSLAcmeScriptPath}/acme.sh --register-account -m ${acmeSSLRegisterEmailInput} --server google --eab-kid ${isDomainSSLGoogleEABIdInput} --eab-hmac-key ${isDomainSSLGoogleEABKeyInput}    
+        ${configSSLAcmeScriptPath}/acme.sh --register-account -m ${acmeSSLRegisterEmailInput} --server google --eab-kid ${isDomainSSLGoogleEABIdInput} --eab-hmac-key ${isDomainSSLGoogleEABKeyInput}
     else
         acmeSSLServerName="letsencrypt"
         #${configSSLAcmeScriptPath}/acme.sh --issue -d ${configSSLDomain} --webroot ${configWebsitePath} --keylength ec-256 --days 89 --server letsencrypt
@@ -1549,9 +1556,9 @@ function getHTTPSCertificateWithAcme(){
             acmeDefaultText="1. standalone 模式"
             acmeSSLHttpWebrootMode="standalone"
         fi
-        
+
         if [ -z "$1" ]; then
- 
+
             checkPortUsage "80"
 
             green " ================================================== "
@@ -1564,7 +1571,7 @@ function getHTTPSCertificateWithAcme(){
             read -r -p "请选择http申请证书方式? 默认为 ${acmeDefaultText}, 请输入纯数字:" isAcmeSSLWebrootModeInput
 
             isAcmeSSLWebrootModeInput=${isAcmeSSLWebrootModeInput:-${acmeDefaultValue}}
-            
+
             if [[ ${isAcmeSSLWebrootModeInput} == "1" ]]; then
                 acmeSSLHttpWebrootMode="standalone"
             elif [[ ${isAcmeSSLWebrootModeInput} == "2" ]]; then
@@ -1589,30 +1596,30 @@ function getHTTPSCertificateWithAcme(){
         echo
         if [[ ${acmeSSLHttpWebrootMode} == "standalone" ]] ; then
             green " 开始申请证书 acme.sh 通过 http standalone mode 从 ${acmeSSLServerName} 申请, 请确保80端口不被占用 "
-            
+
             echo
             ${configSSLAcmeScriptPath}/acme.sh --issue -d ${configSSLDomain} --standalone --keylength ec-256 --days ${acmeSSLDays} --server ${acmeSSLServerName}
-        
+
         elif [[ ${acmeSSLHttpWebrootMode} == "webroot" ]] ; then
             green " 开始申请证书, acme.sh 通过 http webroot mode 从 ${acmeSSLServerName} 申请, 请确保web服务器 例如 nginx 已经运行在80端口 "
-            
+
             echo
             read -r -p "请输入Web服务器的html网站根目录路径? 例如/usr/share/nginx/html:" isDomainSSLNginxWebrootFolderInput
             echo " 您输入的网站根目录路径为 ${isDomainSSLNginxWebrootFolderInput}"
 
             if [ -z ${isDomainSSLNginxWebrootFolderInput} ]; then
                 red " 输入的Web服务器的 html网站根目录路径不能为空, 网站根目录将默认设置为 ${configWebsitePath}, 请修改你的web服务器配置后再申请证书!"
-                
+
             else
                 configWebsitePath="${isDomainSSLNginxWebrootFolderInput}"
             fi
-            
+
             echo
             ${configSSLAcmeScriptPath}/acme.sh --issue -d ${configSSLDomain} --webroot ${configWebsitePath} --keylength ec-256 --days ${acmeSSLDays} --server ${acmeSSLServerName}
-        
+
         elif [[ ${acmeSSLHttpWebrootMode} == "nginx" ]] ; then
             green " 开始申请证书, acme.sh 通过 http nginx mode 从 ${acmeSSLServerName} 申请, 请确保web服务器 nginx 已经运行 "
-            
+
             echo
             ${configSSLAcmeScriptPath}/acme.sh --issue -d ${configSSLDomain} --nginx --keylength ec-256 --days ${acmeSSLDays} --server ${acmeSSLServerName}
 
@@ -1622,7 +1629,7 @@ function getHTTPSCertificateWithAcme(){
 
             ranDownloadUrl="https://github.com/m3ng9i/ran/releases/download/v0.1.6/ran_linux_amd64.zip"
             ranDownloadFileName="ran_linux_amd64"
-            
+
             if [[ "${osArchitecture}" == "arm64" || "${osArchitecture}" == "arm" ]]; then
                 ranDownloadUrl="https://github.com/m3ng9i/ran/releases/download/v0.1.6/ran_linux_arm64.zip"
                 ranDownloadFileName="ran_linux_arm64"
@@ -1630,19 +1637,19 @@ function getHTTPSCertificateWithAcme(){
 
 
             mkdir -p ${configRanPath}
-            
+
             if [[ -f "${configRanPath}/${ranDownloadFileName}" ]]; then
                 green " 检测到 ran 已经下载过, 准备启动 ran 临时的web服务器 "
             else
                 green " 开始下载 ran 作为临时的web服务器 "
-                downloadAndUnzip "${ranDownloadUrl}" "${configRanPath}" "${ranDownloadFileName}" 
+                downloadAndUnzip "${ranDownloadUrl}" "${configRanPath}" "${ranDownloadFileName}"
                 chmod +x "${configRanPath}/${ranDownloadFileName}"
             fi
 
             echo "nohup ${configRanPath}/${ranDownloadFileName} -l=false -g=false -sa=true -p=80 -r=${configWebsitePath} >/dev/null 2>&1 &"
             nohup ${configRanPath}/${ranDownloadFileName} -l=false -g=false -sa=true -p=80 -r=${configWebsitePath} >/dev/null 2>&1 &
             echo
-            
+
             green " 开始申请证书, acme.sh 通过 http webroot mode 从 ${acmeSSLServerName} 申请, 并使用 ran 作为临时的web服务器 "
             echo
             ${configSSLAcmeScriptPath}/acme.sh --issue -d ${configSSLDomain} --webroot ${configWebsitePath} --keylength ec-256 --days ${acmeSSLDays} --server ${acmeSSLServerName}
@@ -1659,9 +1666,9 @@ function getHTTPSCertificateWithAcme(){
         red "注意 CloudFlare 针对某些免费域名例如 .tk .cf 等  不再支持使用API 申请DNS证书 "
         echo
         read -r -p "请选择 DNS 提供商 ? 默认直接回车为 1. CloudFlare, 请输入纯数字:" isAcmeSSLDNSProviderInput
-        isAcmeSSLDNSProviderInput=${isAcmeSSLDNSProviderInput:-1}    
+        isAcmeSSLDNSProviderInput=${isAcmeSSLDNSProviderInput:-1}
 
-        
+
         if [ "$isAcmeSSLDNSProviderInput" == "2" ]; then
             read -r -p "Please Input Ali Key: " Ali_Key
             export Ali_Key="${Ali_Key}"
@@ -1690,17 +1697,17 @@ function getHTTPSCertificateWithAcme(){
             export CF_Key="${cf_key}"
             acmeSSLDNSProvider="dns_cf"
         fi
-        
+
         echo
-        ${configSSLAcmeScriptPath}/acme.sh --issue -d "${configSSLDomain}" --dns ${acmeSSLDNSProvider} --force --keylength ec-256 --server ${acmeSSLServerName} --debug 
-        
+        ${configSSLAcmeScriptPath}/acme.sh --issue -d "${configSSLDomain}" --dns ${acmeSSLDNSProvider} --force --keylength ec-256 --server ${acmeSSLServerName} --debug
+
     fi
 
     echo
     if [[ ${isAcmeSSLWebrootModeInput} == "1" ]]; then
         ${configSSLAcmeScriptPath}/acme.sh --installcert --ecc -d ${configSSLDomain} \
         --key-file ${configSSLCertPath}/${configSSLCertKeyFilename} \
-        --fullchain-file ${configSSLCertPath}/${configSSLCertFullchainFilename} 
+        --fullchain-file ${configSSLCertPath}/${configSSLCertFullchainFilename}
     else
         ${configSSLAcmeScriptPath}/acme.sh --installcert --ecc -d ${configSSLDomain} \
         --key-file ${configSSLCertPath}/${configSSLCertKeyFilename} \
@@ -1730,8 +1737,8 @@ function compareRealIpWithLocalIp(){
             #configNetworkLocalIp4="$(curl https://v4.ident.me/)"
             #configNetworkLocalIp5="$(curl https://api.ip.sb/ip)"
             #configNetworkLocalIp6="$(curl https://ipinfo.io/ip)"
-            
-            
+
+
             #configNetworkLocalIPv61="$(curl https://ipv6.icanhazip.com/)"
             #configNetworkLocalIPv62="$(curl https://v6.ident.me/)"
 
@@ -1752,12 +1759,12 @@ function compareRealIpWithLocalIp(){
                 false
             fi
         else
-            green " ================================================== "        
+            green " ================================================== "
             red "     域名输入错误!"
-            green " ================================================== "        
+            green " ================================================== "
             false
         fi
-        
+
     else
         green " ================================================== "
         green "     不检测域名解析是否正确!"
@@ -1768,7 +1775,7 @@ function compareRealIpWithLocalIp(){
 
 
 function getHTTPSCertificateStep1(){
-    
+
     echo
     green " ================================================== "
     green " 请输入证书要放置的路径:  默认为${configSSLCertPath} "
@@ -1835,7 +1842,7 @@ function createUserWWW(){
     isHaveWwwUser=$(cat /etc/passwd | cut -d ":" -f 1 | grep ^${wwwUsername}$)
     if [ "${isHaveWwwUser}" != "${wwwUsername}" ]; then
         ${sudoCmd} groupadd ${wwwUsername}
-        ${sudoCmd} useradd -s /usr/sbin/nologin -g ${wwwUsername} ${wwwUsername} --no-create-home         
+        ${sudoCmd} useradd -s /usr/sbin/nologin -g ${wwwUsername} ${wwwUsername} --no-create-home
     fi
 }
 
@@ -1852,7 +1859,7 @@ function stopServiceV2ray(){
     fi
     if [[ -f "${osSystemMdPath}xray.service" ]] || [[ -f "/etc/systemd/system/xray.service" ]] || [[ -f "/lib/systemd/system/xray.service" ]] ; then
         ${sudoCmd} systemctl stop xray.service
-    fi    
+    fi
 }
 
 
@@ -1901,17 +1908,17 @@ function installWebServerNginx(){
 
         # 解决出现的nginx warning 错误 Failed to parse PID from file /run/nginx.pid: Invalid argument
         # https://www.kancloud.cn/tinywan/nginx_tutorial/753832
-        
+
         mkdir -p /etc/systemd/system/nginx.service.d
         printf "[Service]\nExecStartPost=/bin/sleep 0.1\n" > /etc/systemd/system/nginx.service.d/override.conf
-        
+
         ${sudoCmd} systemctl daemon-reload
 
     fi
 
 
 
-    
+
     mkdir -p ${configWebsitePath}
     mkdir -p "${nginxConfigSiteConfPath}"
 
@@ -1959,7 +1966,7 @@ EOM
             grpc_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
         }
 
-        
+
 
 EOM
 
@@ -2010,7 +2017,7 @@ EOF
         ssl_stapling on;
         ssl_stapling_verify on;
         add_header Strict-Transport-Security "max-age=31536000";
-        
+
         root $configWebsitePath;
         index index.php index.html index.htm;
 
@@ -2084,7 +2091,7 @@ EOM
         ssl_stapling on;
         ssl_stapling_verify on;
         add_header Strict-Transport-Security "max-age=31536000";
-        
+
         root $configWebsitePath;
         index index.php index.html index.htm;
 
@@ -2108,7 +2115,7 @@ EOM
         nginxConfigStreamTrojanUpstreamInput=""
 
         if [[ "${isNginxSNIModeInput}" == "1" || "${isNginxSNIModeInput}" == "2" || "${isNginxSNIModeInput}" == "4" || "${isNginxSNIModeInput}" == "5" ]]; then
-            
+
             nginxConfigStreamFakeWebsiteDomainInput="${configNginxSNIDomainTrojan}"
 
             read -r -d '' nginxConfigStreamTrojanMapInput << EOM
@@ -2163,7 +2170,7 @@ stream {
         ${nginxConfigStreamTrojanMapInput}
         ${nginxConfigStreamV2rayMapInput}
     }
-    
+
     ${nginxConfigStreamTrojanUpstreamInput}
 
     ${nginxConfigStreamV2rayUpstreamInput}
@@ -2254,7 +2261,7 @@ http {
     gzip  on;
 
 
-    include ${nginxConfigSiteConfPath}/*.conf; 
+    include ${nginxConfigSiteConfPath}/*.conf;
 }
 
 EOF
@@ -2271,7 +2278,7 @@ EOF
 
     if [ "${configInstallNginxMode}" != "trojanWeb" ] ; then
         wget -P "${configWebsiteDownloadPath}" "https://github.com/jinwyp/one_click_script/raw/master/download/trojan-mac.zip"
-        wget -P "${configWebsiteDownloadPath}" "https://github.com/jinwyp/one_click_script/raw/master/download/v2ray-windows.zip" 
+        wget -P "${configWebsiteDownloadPath}" "https://github.com/jinwyp/one_click_script/raw/master/download/v2ray-windows.zip"
         wget -P "${configWebsiteDownloadPath}" "https://github.com/jinwyp/one_click_script/raw/master/download/v2ray-mac.zip"
     fi
 
@@ -2312,7 +2319,7 @@ EOF
 
     cat >> ${configReadme} <<-EOF
 
-Web服务器 nginx 安装成功! 伪装站点为 ${configSSLDomain}   
+Web服务器 nginx 安装成功! 伪装站点为 ${configSSLDomain}
 伪装站点的静态html内容放置在目录 ${configWebsitePath}, 可自行更换网站内容.
 nginx 配置路径 ${nginxConfigPath}
 nginx 访问日志 ${nginxAccessLogFilePath}
@@ -2320,8 +2327,8 @@ nginx 错误日志 ${nginxErrorLogFilePath}
 
 nginx 查看日志命令: journalctl -n 50 -u nginx.service
 
-nginx 启动命令: systemctl start nginx.service  
-nginx 停止命令: systemctl stop nginx.service  
+nginx 启动命令: systemctl start nginx.service
+nginx 停止命令: systemctl stop nginx.service
 nginx 重启命令: systemctl restart nginx.service
 nginx 查看运行状态命令: systemctl status nginx.service
 
@@ -2331,10 +2338,10 @@ EOF
     if [[ "${configInstallNginxMode}" == "trojanWeb" ]] ; then
         cat >> ${configReadme} <<-EOF
 
-安装的Trojan-web ${versionTrojanWeb} 可视化管理面板 
+安装的Trojan-web ${versionTrojanWeb} 可视化管理面板
 访问地址  http://${configSSLDomain}/${configTrojanWebNginxPath}
-Trojan-web 停止命令: systemctl stop trojan-web.service  
-Trojan-web 启动命令: systemctl start trojan-web.service  
+Trojan-web 停止命令: systemctl stop trojan-web.service
+Trojan-web 启动命令: systemctl start trojan-web.service
 Trojan-web 重启命令: systemctl restart trojan-web.service
 
 Trojan 服务器端配置路径 /usr/local/etc/trojan/config.json
@@ -2390,20 +2397,74 @@ function removeNginx(){
             rm -f ${configReadme}
 
             rm -rf "/etc/nginx"
-            
+
             rm -rf ${configDownloadTempPath}
 
             echo
             read -r -p "是否删除证书 和 卸载acme.sh申请证书工具, 由于一天内申请证书有次数限制, 默认建议不删除证书,  请输入[y/N]:" isDomainSSLRemoveInput
             isDomainSSLRemoveInput=${isDomainSSLRemoveInput:-n}
 
-            
+
             if [[ $isDomainSSLRemoveInput == [Yy] ]]; then
-                rm -rf ${configWebsiteFatherPath}
+                shopt -s nullglob
+                renewDomainArray=("${configSSLAcmeScriptPath}"/*ecc*)
+                COUNTER1=1
+
+                echo
+                green " ================================================== "
+                green " 请选择要续签或要删除的域名:"
+                echo
+                for renewDomainName in "${renewDomainArray[@]}"; do
+
+                    substr=${renewDomainName##*/}
+                    substr=${substr%_ecc*}
+                    renewDomainArrayFix[${COUNTER1}]="$substr"
+                    echo " ${COUNTER1}. 域名: ${substr}"
+
+                    COUNTER1=$((COUNTER1 +1))
+                done
+
+                echo
+                read -r -p "请选择域名? 请输入纯数字:" isRenewDomainSelectNumberInput
+                isRenewDomainSelectNumberInput=${isRenewDomainSelectNumberInput:-99}
+
+                if [[ "$isRenewDomainSelectNumberInput" == "99" ]]; then
+                    red " 输入错误, 请重新输入!"
+                    echo
+                    read -r -p "请选择域名? 请输入纯数字:" isRenewDomainSelectNumberInput
+                    isRenewDomainSelectNumberInput=${isRenewDomainSelectNumberInput:-99}
+
+                    if [[ "$isRenewDomainSelectNumberInput" == "99" ]]; then
+                        red " 输入错误, 退出!"
+                        exit
+                    else
+                        echo
+                    fi
+                else
+                    echo
+                fi
+
+                configSSLRenewDomain=${renewDomainArrayFix[${isRenewDomainSelectNumberInput}]}
+
+                if [[ -n $(${configSSLAcmeScriptPath}/acme.sh --list | grep ${configSSLRenewDomain}) ]]; then
+
+                    ${configSSLAcmeScriptPath}/acme.sh --revoke -d ${configSSLRenewDomain} --ecc
+                    ${configSSLAcmeScriptPath}/acme.sh --remove -d ${configSSLRenewDomain} --ecc
+
+                    rm -rf "${configSSLAcmeScriptPath}/${configSSLRenewDomain}_ecc"
+                    echo
+                    green " 域名 ${configSSLRenewDomain} 的证书已经删除成功!"
+
+                else
+                    echo
+                    red " 您选择的域名 ${configSSLRenewDomain} 证书不存在！"
+                fi
+
                 ${sudoCmd} bash ${configSSLAcmeScriptPath}/acme.sh --uninstall
-                
+                rm -rf ${configWebsiteFatherPath}
+
                 showHeaderGreen "Nginx 卸载完毕, SSL 证书文件已删除!"
-                
+
             else
                 rm -rf ${configWebsitePath}
 
@@ -2415,7 +2476,7 @@ function removeNginx(){
         fi
         echo
 
-    fi    
+    fi
 }
 
 
@@ -2475,7 +2536,7 @@ function checkNginxSNIDomain(){
             configNginxSNIDomainWebsite=$2
             configSSLCertPath="${configNginxSNIDomainWebsiteCertPath}"
         fi
-        
+
         configSSLDomain="$2"
         mkdir -p ${configSSLCertPath}
 
@@ -2512,11 +2573,11 @@ function inputNginxSNIDomain(){
     if [ "$1" = "trojan" ]; then
         yellow " 请输入解析到本VPS的域名 用于给Trojan使用, 例如 www.xxx.com: (此步骤请关闭CDN后安装)"
         read -p "请输入解析到本VPS的域名:" configNginxSNIDomainDefault
-        
+
     elif [ "$1" = "v2ray" ]; then
         yellow " 请输入解析到本VPS的域名 用于给V2ray使用, 例如 www.xxx.com: (此步骤请关闭CDN后安装)"
         read -p "请输入解析到本VPS的域名:" configNginxSNIDomainDefault
-        
+
     elif [ "$1" = "website" ]; then
         yellow " 请输入解析到本VPS的域名 用于给现有网站使用, 例如 www.xxx.com: (此步骤请关闭CDN后安装)"
         read -p "请输入解析到本VPS的域名:" configNginxSNIDomainDefault
@@ -2524,12 +2585,12 @@ function inputNginxSNIDomain(){
     fi
 
     checkNginxSNIDomain $1 ${configNginxSNIDomainDefault}
-    
+
 }
 
 function inputXraySystemdServiceName(){
 
-    if [ "$1" = "v2ray_nginxOptional" ]; then
+    if [[ "$1" == "v2ray_nginxOptional" || "$1" == "nginx_v2ray" || "$1" == "v2ray" ]]; then
         echo
         green " ================================================== "
         yellow " 请输入自定义的 V2ray 或 Xray 的Systemd服务名称后缀, 默认为空"
@@ -2579,14 +2640,14 @@ function installTrojanV2rayWithNginx(){
         green " 5. Nginx + Trojan + 已有网站共存"
         green " 6. Nginx + V2ray + 已有网站共存"
 
-        echo 
+        echo
         read -p "请选择 Nginx SNI 的安装模式 直接回车默认选1, 请输入纯数字:" isNginxSNIModeInput
         isNginxSNIModeInput=${isNginxSNIModeInput:-1}
 
         if [[ "${isNginxSNIModeInput}" == "1" ]]; then
             inputNginxSNIDomain "trojan"
             inputNginxSNIDomain "v2ray"
-            
+
 
             installWebServerNginx
             installTrojanServer
@@ -2626,7 +2687,7 @@ function installTrojanV2rayWithNginx(){
 
             installWebServerNginx
             installV2ray
-            
+
         fi
 
         exit
@@ -2679,15 +2740,15 @@ function installTrojanV2rayWithNginx(){
     else
         renewCertificationWithAcme ""
     fi
-    
+
 
     echo
     if test -s ${configSSLCertPath}/${configSSLCertFullchainFilename}; then
-    
+
         green " ================================================== "
         green " 已检测到域名 ${configSSLDomain} 的证书文件 获取成功!"
         green " ${configSSLDomain} 域名证书内容文件路径 ${configSSLCertPath}/${configSSLCertFullchainFilename} "
-        green " ${configSSLDomain} 域名证书私钥文件路径 ${configSSLCertPath}/${configSSLCertKeyFilename} "        
+        green " ${configSSLDomain} 域名证书私钥文件路径 ${configSSLCertPath}/${configSSLCertKeyFilename} "
         green " ================================================== "
         echo
 
@@ -2736,7 +2797,7 @@ function installTrojanV2rayWithNginx(){
         red " 重启VPS, 重新执行脚本, 可重新选择该项再次申请证书 ! "
         red " ================================================== "
         exit
-    fi    
+    fi
 }
 
 
@@ -2826,7 +2887,7 @@ function getTrojanGoVersion(){
 }
 
 function downloadTrojanBin(){
-    
+
     if [[ ${osArchitecture} == "arm" ]] ; then
         downloadFilenameTrojanGo="trojan-go-linux-arm.zip"
     fi
@@ -2848,11 +2909,11 @@ function downloadTrojanBin(){
     elif [[ "${isTrojanTypeInput}" == "2" ]]; then
         # https://github.com/p4gefau1t/trojan-go/releases/download/v0.10.6/trojan-go-linux-amd64.zip
         downloadAndUnzip "https://github.com/p4gefau1t/trojan-go/releases/download/v${versionTrojanGo}/${downloadFilenameTrojanGo}" "${configTrojanBasePath}" "${downloadFilenameTrojanGo}"
-    
+
     elif [[ "${isTrojanTypeInput}" == "3" ]]; then
         # https://github.com/fregie/trojan-go/releases/download/v1.0.5/trojan-go-linux-amd64.zip
         downloadAndUnzip "https://github.com/fregie/trojan-go/releases/download/v${versionTrojanGo}/${downloadFilenameTrojanGo}" "${configTrojanBasePath}" "${downloadFilenameTrojanGo}"
-        
+
     else
         downloadFilenameTrojanGo="trojan-go-fork-linux-amd64.zip"
         if [[ ${osArchitecture} == "arm" ]] ; then
@@ -2966,16 +3027,16 @@ function installTrojanServer(){
         configV2rayTrojanPort=443
 
         inputV2rayServerPort "textMainTrojanPort"
-        configV2rayTrojanPort=${isTrojanUserPortInput}         
+        configV2rayTrojanPort=${isTrojanUserPortInput}
     fi
 
-    configV2rayTrojanReadmePort=${configV2rayTrojanPort}    
+    configV2rayTrojanReadmePort=${configV2rayTrojanPort}
 
     if [[ "$configV2rayWorkingMode" == "sni" ]] ; then
         configSSLCertPath="${configNginxSNIDomainTrojanCertPath}"
-        configSSLDomain=${configNginxSNIDomainTrojan}   
+        configSSLDomain=${configNginxSNIDomainTrojan}
 
-        configV2rayTrojanReadmePort=443 
+        configV2rayTrojanReadmePort=443
     fi
 
     rm -rf "${configTrojanBasePath}"
@@ -3176,7 +3237,7 @@ EOM
 }
 EOF
 
-        # rm /etc/systemd/system/trojan.service   
+        # rm /etc/systemd/system/trojan.service
         # 增加启动脚本
         cat > ${osSystemMdPath}trojan.service <<-EOF
 [Unit]
@@ -3220,7 +3281,7 @@ EOF
         "key": "${configSSLCertPath}/$configSSLCertKeyFilename",
         "sni": "${configSSLDomain}",
         "fallback_addr": "127.0.0.1",
-        "fallback_port": 80, 
+        "fallback_port": 80,
         "fingerprint": "chrome"
     },
     "websocket": {
@@ -3304,7 +3365,7 @@ EOF
     if [ "${isTrojanMultiPassword}" = "no" ] ; then
         tempTextInfoTrojanPassword="您指定前缀的密码共10个: 从 ${configTrojanPasswordPrefixInput}202201 到 ${configTrojanPasswordPrefixInput}202220 都可以使用"
     fi
-    yellow "${tempTextInfoTrojanPassword}" 
+    yellow "${tempTextInfoTrojanPassword}"
     yellow "例如: 密码:${configTrojanPasswordPrefixInput}202202 或 密码:${configTrojanPasswordPrefixInput}202209 都可以使用"
 
     if [[ ${isTrojanGoSupportWebsocket} == "true" ]]; then
@@ -3327,7 +3388,7 @@ EOF
             echo
             yellow " Trojan${promptInfoTrojanName} QV2ray 链接地址"
             green " trojan-go://${trojanPassword1}@${configSSLDomain}:${configV2rayTrojanReadmePort}?sni=${configSSLDomain}&type=ws&host=${configSSLDomain}&path=%2F${configTrojanGoWebSocketPath}#${configSSLDomain}_trojan_go_ws"
-        
+
         else
             green " trojan://${trojanPassword1}@${configSSLDomain}:${configV2rayTrojanReadmePort}?peer=${configSSLDomain}&sni=${configSSLDomain}#${configSSLDomain}_trojan_go"
             echo
@@ -3388,11 +3449,11 @@ EOF
 Trojan${promptInfoTrojanName} Version: ${configTrojanBaseVersion} 安装成功 !
 Trojan${promptInfoTrojanName} 服务器端配置路径 ${configTrojanBasePath}/server.json
 
-Trojan${promptInfoTrojanName} 运行日志文件路径: ${configTrojanLogFile} 
+Trojan${promptInfoTrojanName} 运行日志文件路径: ${configTrojanLogFile}
 Trojan${promptInfoTrojanName} 查看日志命令: journalctl -n 50 -u trojan${promptInfoTrojanName}.service
 
 Trojan${promptInfoTrojanName} 启动命令: systemctl start trojan${promptInfoTrojanName}.service
-Trojan${promptInfoTrojanName} 停止命令: systemctl stop trojan${promptInfoTrojanName}.service  
+Trojan${promptInfoTrojanName} 停止命令: systemctl stop trojan${promptInfoTrojanName}.service
 Trojan${promptInfoTrojanName} 重启命令: systemctl restart trojan${promptInfoTrojanName}.service
 Trojan${promptInfoTrojanName} 查看运行状态命令: systemctl status trojan${promptInfoTrojanName}.service
 
@@ -3447,7 +3508,7 @@ function removeTrojan(){
     isRemoveTrojanServerInput=${isRemoveTrojanServerInput:-Y}
 
     if [[ "${isRemoveTrojanServerInput}" == [Yy] ]]; then
-        
+
         echo
         green " ================================================== "
         red " 准备卸载已安装的 Trojan${promptInfoTrojanName}"
@@ -3553,7 +3614,7 @@ selectShadowsocksMethod(){
     echo
     read -r -p "请选择加密方式? 直接回车默认选7, 请输入纯数字:" isShadowsocksMethodInput
     isShadowsocksMethodInput=${isShadowsocksMethodInput:-7}
-    
+
     genShadowsocksPassword
 
     if [[ "${isShadowsocksMethodInput}" == "1" ]]; then
@@ -3577,7 +3638,7 @@ selectShadowsocksMethod(){
 
     elif [[ "${isShadowsocksMethodInput}" == "8" ]]; then
         shadowsocksMethod="2022-blake3-chacha20-poly1305"
-        genShadowsocksPassword "32"       
+        genShadowsocksPassword "32"
     else
         shadowsocksMethod="aes-256-gcm"
     fi
@@ -3603,7 +3664,7 @@ function installShadowsocksRust(){
     fi
 
     showHeaderGreen " 开始安装 Shadowsocks Rust " \
-    " Prepare to install Shadowsocks Rust "  
+    " Prepare to install Shadowsocks Rust "
 
     configNetworkVPSIP=$(get_ip)
 
@@ -3636,7 +3697,7 @@ function installShadowsocksRust(){
 
     # https://github.com/shadowsocks/shadowsocks-rust/releases/download/v1.14.3/shadowsocks-v1.14.3.x86_64-unknown-linux-musl.tar.xz
     # https://github.com/shadowsocks/shadowsocks-rust/releases/download/v1.14.3/shadowsocks-v1.14.3.arm-unknown-linux-musleabi.tar.xz
-    
+
     downloadFilenameShadowsocksRust="shadowsocks-v${versionShadowsocksRust}.x86_64-unknown-linux-musl.tar.xz"
     if [[ ${osArchitecture} == "arm" ]] ; then
         downloadFilenameShadowsocksRust="shadowsocks-v${versionShadowsocksRust}.arm-unknown-linux-musleabi.tar.xz"
@@ -3680,7 +3741,7 @@ EOF
     ${sudoCmd} chmod +x ${configSSRustPath}/ssserver
     ${sudoCmd} chmod +x ${osSystemMdPath}shadowsocksrust.service
     ${sudoCmd} systemctl daemon-reload
-    
+
     ${sudoCmd} systemctl enable shadowsocksrust.service
     ${sudoCmd} systemctl restart shadowsocksrust.service
 
@@ -3739,7 +3800,7 @@ function installShadowsocks(){
     fi
 
     showHeaderGreen " 开始安装 Xray Shadowsocks " \
-    " Prepare to install Xray Shadowsocks "  
+    " Prepare to install Xray Shadowsocks "
 
     configNetworkVPSIP=$(get_ip)
 
@@ -3818,7 +3879,7 @@ fi
     echo
     read -p "请输入? 直接回车默认选1, 请输入纯数字:" isV2rayBlockChinaSiteInput
     isV2rayBlockChinaSiteInput=${isV2rayBlockChinaSiteInput:-1}
-    
+
     V2rayBlockChinaSiteRuleText="blocked_out"
 
 
@@ -3861,7 +3922,7 @@ fi
                     "geoip:cn"
                 ],
                 "outboundTag": "${V2rayBlockChinaSiteRuleText}"
-            },           
+            },
             {
                 "type": "field",
                 "outboundTag": "IPv4_out",
@@ -3890,7 +3951,7 @@ fi
             "tag":"IPv6_out",
             "protocol": "freedom",
             "settings": {
-                "domainStrategy": "UseIPv6" 
+                "domainStrategy": "UseIPv6"
             }
         }
     ]
@@ -3929,7 +3990,7 @@ EOF
     ${sudoCmd} chmod +x ${configSSXrayPath}/xray
     ${sudoCmd} chmod +x ${osSystemMdPath}shadowsocksxray.service
     ${sudoCmd} systemctl daemon-reload
-    
+
     ${sudoCmd} systemctl enable shadowsocksxray.service
     ${sudoCmd} systemctl restart shadowsocksxray.service
 
@@ -4025,7 +4086,7 @@ function removeShadowsocks(){
 
             showHeaderGreen " Shadowsocks Xray 卸载完毕 !" \
             " Shadowsocks Xray uninstalled successfully !"
-            
+
         fi
 
     else
@@ -4035,7 +4096,7 @@ function removeShadowsocks(){
     fi
 
 
-  
+
 
     if [[ -f "${configSSRustPath}/ssserver" ]]; then
         echo
@@ -4097,7 +4158,7 @@ function generateXrayRealityShortId() {
     # Generate random string of specified length
     # 0 到 f，长度为 2 的倍数，长度上限为 16
     local hex_chars="0123456789abcdef"
-    
+
     for (( i=0; i<16; i++ )); do
         xrayRealityShortId+=${hex_chars:$((RANDOM%16)):1}
     done
@@ -4158,7 +4219,7 @@ function downloadV2rayXrayBin(){
         # https://github.com/v2fly/v2ray-core/releases/download/v4.41.1/v2ray-linux-64.zip
         # https://github.com/v2fly/v2ray-core/releases/download/v4.41.1/v2ray-linux-arm32-v6.zip
         # https://github.com/v2fly/v2ray-core/releases/download/v4.44.0/v2ray-linux-arm64-v8a.zip
-        
+
         if [[ ${osArchitecture} == "arm" ]] ; then
             downloadFilenameV2ray="v2ray-linux-arm32-v6.zip"
         fi
@@ -4252,8 +4313,8 @@ function inputV2rayStreamSettings(){
         if [[ "${configV2rayStreamSetting}" == "grpc" ]]; then
             inputV2rayServerPort "textMainGRPCPort"
 
-            configV2rayGRPCPort=${isV2rayUserPortGRPCInput}   
-            configV2rayPortGRPCShowInfo=${isV2rayUserPortGRPCInput}   
+            configV2rayGRPCPort=${isV2rayUserPortGRPCInput}
+            configV2rayPortGRPCShowInfo=${isV2rayUserPortGRPCInput}
 
             inputV2rayGRPCPath
 
@@ -4262,8 +4323,8 @@ function inputV2rayStreamSettings(){
 
             inputV2rayServerPort "textMainGRPCPort"
 
-            configV2rayGRPCPort=${isV2rayUserPortGRPCInput}   
-            configV2rayPortGRPCShowInfo=${isV2rayUserPortGRPCInput}   
+            configV2rayGRPCPort=${isV2rayUserPortGRPCInput}
+            configV2rayPortGRPCShowInfo=${isV2rayUserPortGRPCInput}
 
             inputV2rayGRPCPath
         fi
@@ -4271,14 +4332,14 @@ function inputV2rayStreamSettings(){
     fi
 }
 
-function inputV2rayKCPSeedPassword(){ 
+function inputV2rayKCPSeedPassword(){
     echo
     configV2rayKCPSeedPassword=$(cat /dev/urandom | head -1 | md5sum | head -c 4)
 
     configV2rayKCPQuicText="KCP的Seed 混淆密码"
     if [[ $1 == "quic" ]]; then
         configV2rayKCPQuicText="QUIC 的key密钥"
-    fi 
+    fi
 
     read -p "是否自定义${promptInfoXrayName}的 ${configV2rayKCPQuicText}? 直接回车默认创建随机密码, 请输入自定义密码:" isV2rayUserKCPSeedInput
     isV2rayUserKCPSeedInput=${isV2rayUserKCPSeedInput:-${configV2rayKCPSeedPassword}}
@@ -4291,14 +4352,14 @@ function inputV2rayKCPSeedPassword(){
 }
 
 
-function inputV2rayWSPath(){ 
+function inputV2rayWSPath(){
     echo
     configV2rayWebSocketPath=$(cat /dev/urandom | head -1 | md5sum | head -c 8)
 
     configV2rayWSH2Text="WS"
     if [[ $1 == "h2" ]]; then
         configV2rayWSH2Text="HTTP2"
-    fi 
+    fi
 
     read -r -p "是否自定义${promptInfoXrayName}的 ${configV2rayWSH2Text}的Path? 直接回车默认创建随机路径, 请输入自定义路径(不要输入/):" isV2rayUserWSPathInput
     isV2rayUserWSPathInput=${isV2rayUserWSPathInput:-${configV2rayWebSocketPath}}
@@ -4310,7 +4371,7 @@ function inputV2rayWSPath(){
     fi
 }
 
-function inputV2rayGRPCPath(){ 
+function inputV2rayGRPCPath(){
     echo
     configV2rayGRPCServiceName=$(cat /dev/urandom | head -1 | md5sum | head -c 8)
 
@@ -4325,29 +4386,29 @@ function inputV2rayGRPCPath(){
 }
 
 
-function inputV2rayServerPort(){  
+function inputV2rayServerPort(){
     echo
     if [[ $1 == "textMainPort" ]]; then
         green " 是否自定义${promptInfoXrayName}的端口号? 如要支持cloudflare的CDN, 需要使用cloudflare支持的HTTPS端口号 例如 443 8443 2053 2083 2087 2096 端口"
         green " 具体请看cloudflare官方文档 https://developers.cloudflare.com/fundamentals/get-started/network-ports"
         read -p "是否自定义${promptInfoXrayName}的端口号? 直接回车默认为${configV2rayPortShowInfo}, 请输入自定义端口号[1-65535]:" isV2rayUserPortInput
         isV2rayUserPortInput=${isV2rayUserPortInput:-${configV2rayPortShowInfo}}
-        checkPortInUse "${isV2rayUserPortInput}" $1 
+        checkPortInUse "${isV2rayUserPortInput}" $1
     fi
 
     if [[ $1 == "textMainGRPCPort" ]]; then
         green " 如果使用gRPC 协议并要支持cloudflare的CDN, 需要输入 443 端口才可以"
         read -p "是否自定义${promptInfoXrayName} gRPC的端口号? 直接回车默认为${configV2rayPortGRPCShowInfo}, 请输入自定义端口号[1-65535]:" isV2rayUserPortGRPCInput
         isV2rayUserPortGRPCInput=${isV2rayUserPortGRPCInput:-${configV2rayPortGRPCShowInfo}}
-        checkPortInUse "${isV2rayUserPortGRPCInput}" $1 
-    fi    
+        checkPortInUse "${isV2rayUserPortGRPCInput}" $1
+    fi
 
     if [[ $1 == "textAdditionalPort" ]]; then
         green " 是否添加一个额外监听端口, 与主端口${configV2rayPort}一起同时工作"
         green " 一般用于 中转机无法使用443端口 使用额外端口中转给目标主机时使用"
         read -p "是否给${promptInfoXrayName}添加额外的监听端口? 直接回车默认否, 请输入额外端口号[1-65535]:" isV2rayAdditionalPortInput
         isV2rayAdditionalPortInput=${isV2rayAdditionalPortInput:-999999}
-        checkPortInUse "${isV2rayAdditionalPortInput}" $1 
+        checkPortInUse "${isV2rayAdditionalPortInput}" $1
     fi
 
 
@@ -4355,26 +4416,26 @@ function inputV2rayServerPort(){
         green "是否自定义Trojan${promptInfoTrojanName}的端口号? 直接回车默认为${configV2rayTrojanPort}"
         read -p "是否自定义Trojan${promptInfoTrojanName}的端口号? 直接回车默认为${configV2rayTrojanPort}, 请输入自定义端口号[1-65535]:" isTrojanUserPortInput
         isTrojanUserPortInput=${isTrojanUserPortInput:-${configV2rayTrojanPort}}
-        checkPortInUse "${isTrojanUserPortInput}" $1 
-    fi    
+        checkPortInUse "${isTrojanUserPortInput}" $1
+    fi
 }
 
-function checkPortInUse(){ 
+function checkPortInUse(){
     if [ $1 = "999999" ]; then
         echo
     elif [[ $1 -gt 1 && $1 -le 65535 ]]; then
         isPortUsed=$(netstat -tulpn | grep -e ":$1") ;
-        if [ -z "${isPortUsed}" ]; then 
-            green "输入的端口号 $1 没有被占用, 继续安装..."  
-            
+        if [ -z "${isPortUsed}" ]; then
+            green "输入的端口号 $1 没有被占用, 继续安装..."
+
         else
             processInUsedName=$(echo "${isPortUsed}" | awk '{print $7}' | awk -F"/" '{print $2}')
-            red "输入的端口号 $1 已被 ${processInUsedName} 占用! 请退出安装, 检查端口是否已被占用 或 重新输入!"  
+            red "输入的端口号 $1 已被 ${processInUsedName} 占用! 请退出安装, 检查端口是否已被占用 或 重新输入!"
             inputV2rayServerPort $2
         fi
     else
-        red "输入的端口号错误! 必须是[1-65535]. 请重新输入" 
-        inputV2rayServerPort $2 
+        red "输入的端口号错误! 必须是[1-65535]. 请重新输入"
+        inputV2rayServerPort $2
     fi
 }
 
@@ -4403,7 +4464,7 @@ function rawUrlEncode() {
         encoded+="${o}"
     done
     echo
-    green "== URL Encoded: ${encoded}"    # You can either set a return variable (FASTER) 
+    green "== URL Encoded: ${encoded}"    # You can either set a return variable (FASTER)
     v2rayPassword1UrlEncoded="${encoded}"   #+or echo the result (EASIER)... or both... :p
 }
 
@@ -4432,9 +4493,9 @@ function generateVmessImportLink(){
         configV2rayVmessLinkStreamSetting2="tcp"
 
         configV2rayVmessLinkConfigPath="${configV2rayWebSocketPath}"
-        configV2rayVmessLinkConfigPath2="/tcp${configV2rayWebSocketPath}" 
+        configV2rayVmessLinkConfigPath2="/tcp${configV2rayWebSocketPath}"
 
-        configV2rayVmessLinkConfigTls="tls" 
+        configV2rayVmessLinkConfigTls="tls"
 
         configV2rayProtocolDisplayName="vmess"
 
@@ -4594,7 +4655,7 @@ function unlockNetflixBySomebody(){
             {
                 "type": "field",
                 "outboundTag": "GoNetflix",
-                "domain": [ "geosite:netflix", "geosite:disney" ] 
+                "domain": [ "geosite:netflix", "geosite:disney" ]
             },
 EOM
 
@@ -4667,7 +4728,7 @@ function inputUnlockWARPSock5Server(){
 
         echo
         read -r -p "请输入WARP Sock5 代理服务器端口号? 直接回车默认${configWARPPortLocalServerPort}, 请输入纯数字:" unlockWARPServerPortInput
-        unlockWARPServerPortInput=${unlockWARPServerPortInput:-$configWARPPortLocalServerPort}       
+        unlockWARPServerPortInput=${unlockWARPServerPortInput:-$configWARPPortLocalServerPort}
 
         isInputWARPSock5Server="true"
     fi
@@ -4761,7 +4822,7 @@ EOM
             echo
             green " 请输入回落域名 同时也用于serverName? 默认为www.ebay.com"
             read -r -p "请输入回落域名, 直接回车默认为 www.ebay.com: " configXrayRealityFallbackDomainNameInput
-            
+
             if [ -z "${configXrayRealityFallbackDomainNameInput}" ]; then
                 configXrayRealitySni="www.ebay.com"
             fi
@@ -4774,19 +4835,19 @@ EOM
             read -r -d '' unlockOutboundServerWebSocketSettingText << EOM
                 ,
                 "realitySettings": {
-                    "show": false, 
+                    "show": false,
                     "dest": "${configXrayRealitySni}:443",
                     "xver": 0,
                     "serverNames": [
                         "${configXrayRealitySni}",
+                        "ebay.com",
+                        "www.ebay.com",
                         "icloud.com",
                         "www.icloud.com",
                         "apple.com",
                         "www.apple.com",
                         "mozilla.org",
                         "addons.mozilla.org",
-                        "ebay.com",
-                        "www.ebay.com",
                         "walmart.com",
                         "www.walmart.com",
                         "etsy.com",
@@ -4815,10 +4876,11 @@ EOM
                         "s0.awsstatic.com",
                         "d1.awsstatic.com",
                         "amazon.com",
-                        "m.media-amazon.com"
+                        "m.media-amazon.com",
+                        "www.lovelive-anime.jp"
                     ],
                     "privateKey": "${xrayRealityPrivateKey}",
-                    "maxTimeDiff": 0, 
+                    "maxTimeDiff": 0,
                     "shortIds": [
                         ""
                     ]
@@ -4884,7 +4946,7 @@ EOM
 
 
 function v2rayRouteRule(){
-    site_LIST=("google" "openai" "netflix" "disney" "youtube" "spotify" "pornhub" )
+    site_LIST=("google" "openai" "twitter" "netflix" "disney" "youtube" "spotify" "pornhub" )
 
     V2rayUnlockSiteRuleV6Text=""
     V2rayUnlockSiteRuleSock5Text=""
@@ -4895,12 +4957,15 @@ function v2rayRouteRule(){
 
         echo
         green " =================================================="
-        
+
         if [[ "${site}" == "google" ]]; then
         yellow " 请选择 避免弹出 Google reCAPTCHA 人机验证的方式"
 
         elif [[ "${site}" == "openai" ]]; then
-        yellow " 请选择 解锁 OpenAI 方式"
+        yellow " 请选择 解锁 OpenAI ChatGPT 方式"
+
+        elif [[ "${site}" == "twitter" ]]; then
+        yellow " 请选择 解锁 Twitter 方式"
 
         elif [[ "${site}" == "netflix" ]]; then
         yellow " 请选择 解锁 Netflix 非自制剧的方式"
@@ -4930,7 +4995,7 @@ function v2rayRouteRule(){
         red " 推荐先安装 Wireguard 与 Cloudflare WARP 后,再安装v2ray或xray. 实际上先安装v2ray或xray, 后安装Wireguard 与 Cloudflare WARP也没问题"
         red " 但如果先安装v2ray或xray,选择2和3解锁, 那么会暂时无法访问google和其他视频网站, 需要继续安装Wireguard 与 Cloudflare WARP 才能访问"
         echo
-            
+
         read -r -p "请输入解锁选项? 直接回车默认选1 不解锁, 请输入纯数字:" isV2rayUnlockGoogleInput
         isV2rayUnlockGoogleInput=${isV2rayUnlockGoogleInput:-1}
 
@@ -4953,7 +5018,7 @@ function v2rayRouteRule(){
             V2rayUnlockSiteRuleV2rayServerText+="${V2rayUnlockSiteRuleTempText}"
 
             inputUnlockV2rayServerInfo
-        else 
+        else
             echo ""
         fi
 
@@ -4977,7 +5042,7 @@ function v2rayRouteRule(){
 
     if [[ $isV2rayUnlockVideoSiteInput == "2" ]]; then
         V2rayUnlockVideoSiteRuleText="\"geosite:hulu\""
-        
+
     elif [[ $isV2rayUnlockVideoSiteInput == "3" ]]; then
         V2rayUnlockVideoSiteRuleText="\"geosite:hbo\""
 
@@ -5064,7 +5129,7 @@ function v2rayRouteRule(){
 
         if [[ $V2rayUnlockSiteRuleV2rayServerTextFirstChar == "," ]]; then
             V2rayUnlockSiteRuleV2rayServerText="${V2rayUnlockSiteRuleV2rayServerText:1}"
-        fi    
+        fi
     fi
 
     read -r -d '' v2rayConfigRouteInput << EOM
@@ -5074,17 +5139,17 @@ function v2rayRouteRule(){
             {
                 "type": "field",
                 "outboundTag": "IPv6_out",
-                "domain": [${V2rayUnlockSiteRuleV6Text}] 
+                "domain": [${V2rayUnlockSiteRuleV6Text}]
             },
             {
                 "type": "field",
                 "outboundTag": "WARP_out",
-                "domain": [${V2rayUnlockSiteRuleSock5Text}] 
+                "domain": [${V2rayUnlockSiteRuleSock5Text}]
             },
             {
                 "type": "field",
                 "outboundTag": "V2Ray_out",
-                "domain": [${V2rayUnlockSiteRuleV2rayServerText}] 
+                "domain": [${V2rayUnlockSiteRuleV2rayServerText}]
             },
             ${v2rayConfigRouteGoNetflixInput}
             {
@@ -5100,7 +5165,7 @@ function v2rayRouteRule(){
                     "geoip:cn"
                 ],
                 "outboundTag": "${V2rayBlockChinaSiteRuleText}"
-            },           
+            },
             {
                 "type": "field",
                 "outboundTag": "IPv4_out",
@@ -5141,7 +5206,7 @@ function installV2ray(){
 
     green " =================================================="
     green "    开始安装 V2ray or Xray "
-    green " =================================================="    
+    green " =================================================="
     echo
 
     if [[ ( $configV2rayWorkingMode == "trojan" ) || ( $configV2rayWorkingMode == "vlessTCPVmessWS" ) || ( $configV2rayWorkingMode == "vlessTCPWS" ) || ( $configV2rayWorkingMode == "vlessTCPWSTrojan" ) || ( $configV2rayWorkingMode == "sni" ) ]]; then
@@ -5150,7 +5215,7 @@ function installV2ray(){
         green " 由于V2ray不支持XTLS, 如果选择XTLS加密将使用Xray内核提供服务"
         read -p "是否使用XTLS? 直接回车默认为TLS加密, 请输入[y/N]:" isXrayXTLSInput
         isXrayXTLSInput=${isXrayXTLSInput:-n}
-        
+
         if [[ $isXrayXTLSInput == [Yy] ]]; then
             promptInfoXrayName="xray"
             isXray="yes"
@@ -5163,7 +5228,7 @@ function installV2ray(){
             if [[ $isV2rayOrXrayCoreInput == [Yy] ]]; then
                 promptInfoXrayName="xray"
                 isXray="yes"
-            fi        
+            fi
         fi
     elif [[ $configV2rayWorkingMode == "vlessTCPVision" ]]; then
         promptInfoXrayName="xray"
@@ -5186,7 +5251,7 @@ function installV2ray(){
 
 
     if [[ -n "${configV2rayWorkingMode}" ]]; then
-    
+
         if [[ "${configV2rayWorkingMode}" != "sni" ]]; then
             configV2rayProtocol="vless"
 
@@ -5194,8 +5259,8 @@ function installV2ray(){
             configV2rayPortShowInfo=$configV2rayPort
 
             inputV2rayServerPort "textMainPort"
-            configV2rayPort=${isV2rayUserPortInput}   
-            configV2rayPortShowInfo=${isV2rayUserPortInput} 
+            configV2rayPort=${isV2rayUserPortInput}
+            configV2rayPortShowInfo=${isV2rayUserPortInput}
 
         else
             configV2rayProtocol="vless"
@@ -5215,7 +5280,7 @@ function installV2ray(){
             configV2rayProtocol="vmess"
         fi
 
-        
+
         if [[ ${configInstallNginxMode} == "v2raySSL" ]]; then
             configV2rayPortShowInfo=443
             configV2rayPortGRPCShowInfo=443
@@ -5232,8 +5297,8 @@ function installV2ray(){
                 configV2rayPortShowInfo=$configV2rayPort
 
                 inputV2rayServerPort "textMainPort"
-                configV2rayPort=${isV2rayUserPortInput}   
-                configV2rayPortShowInfo=${isV2rayUserPortInput}  
+                configV2rayPort=${isV2rayUserPortInput}
+                configV2rayPortShowInfo=${isV2rayUserPortInput}
 
                 inputV2rayStreamSettings
             fi
@@ -5247,12 +5312,12 @@ function installV2ray(){
         configSSLDomain=${configNginxSNIDomainV2ray}
     fi
 
-    
+
     # 增加任意门
     if [[ ${configInstallNginxMode} == "v2raySSL" ]]; then
         echo
     else
-        
+
         inputV2rayServerPort "textAdditionalPort"
 
         if [[ $isV2rayAdditionalPortInput == "999999" ]]; then
@@ -5262,19 +5327,19 @@ function installV2ray(){
         ,
         {
             "listen": "0.0.0.0",
-            "port": ${isV2rayAdditionalPortInput}, 
+            "port": ${isV2rayAdditionalPortInput},
             "protocol": "dokodemo-door",
             "settings": {
                 "address": "127.0.0.1",
                 "port": ${configV2rayPort},
                 "network": "tcp, udp",
-                "followRedirect": false 
+                "followRedirect": false
             },
             "sniffing": {
                 "enabled": true,
                 "destOverride": ["http", "tls"]
             }
-        }     
+        }
 EOM
 
         fi
@@ -5390,7 +5455,7 @@ EOM
             },
         "localhost"
         ]
-    }, 
+    },
 EOM
 
     fi
@@ -5425,7 +5490,7 @@ EOM
             "tag":"IPv6_out",
             "protocol": "freedom",
             "settings": {
-                "domainStrategy": "UseIPv6" 
+                "domainStrategy": "UseIPv6"
             }
         },
         ${v2rayConfigOutboundV2rayServerInput}
@@ -5487,7 +5552,7 @@ EOM
         echo
         green " 请输入回落域名 同时也用于serverName? 默认为www.ebay.com"
         read -r -p "请输入回落域名, 直接回车默认为 www.ebay.com: " configXrayRealityFallbackDomainNameInput
-        
+
         if [ -z "${configXrayRealityFallbackDomainNameInput}" ]; then
             configXrayRealitySni="www.ebay.com"
         fi
@@ -5741,7 +5806,7 @@ EOM
                 "network": "grpc",
                 "security": "none",
                 "grpcSettings": {
-                    "serviceName": "${configV2rayGRPCServiceName}" 
+                    "serviceName": "${configV2rayGRPCServiceName}"
                 }
             }
         }
@@ -5813,7 +5878,7 @@ EOM
                 "network": "grpc",
                 "security": "none",
                 "grpcSettings": {
-                    "serviceName": "${configV2rayGRPCServiceName}" 
+                    "serviceName": "${configV2rayGRPCServiceName}"
                 }
             }
         }
@@ -5899,7 +5964,7 @@ EOM
                 "security": "none",
                 "httpSettings": {
                     "path": "/${configV2rayWebSocketPath}"
-                }            
+                }
             }
         }
         ${v2rayConfigAdditionalPortInput}
@@ -6006,7 +6071,7 @@ EOM
                 "security": "none",
                 "wsSettings": {
                     "acceptProxyProtocol": true,
-                    "path": "/${configV2rayWebSocketPath}" 
+                    "path": "/${configV2rayWebSocketPath}"
                 }
             }
         },
@@ -6063,7 +6128,7 @@ EOM
                 "security": "tls",
                 "tlsSettings": {
                     "alpn": [
-                        "h2", 
+                        "h2",
                         "http/1.1"
                     ],
                     "certificates": [
@@ -6137,7 +6202,7 @@ EOM
                 "security": "none",
                 "wsSettings": {
                     "acceptProxyProtocol": true,
-                    "path": "/${configV2rayWebSocketPath}" 
+                    "path": "/${configV2rayWebSocketPath}"
                 }
             }
         }
@@ -6195,11 +6260,11 @@ EOM
     "policy": {
         "levels": {
             "0": {
-                "handshake": 5, 
+                "handshake": 5,
                 "connIdle": 310
             }
         }
-    },    
+    },
 EOM
 
     elif [[ "$configV2rayWorkingMode" == "vlessTCPREALITY" ]]; then
@@ -6224,8 +6289,8 @@ EOM
                 "network": "tcp",
                 "security": "${configV2rayIsTlsShowInfo}",
                 "${configV2rayIsTlsShowInfo}Settings": {
-                    "show": false, 
-                    "dest": "${configXrayRealitySni}:443", 
+                    "show": false,
+                    "dest": "${configXrayRealitySni}:443",
                     "xver": 0,
                     "serverNames": [
                         "${configXrayRealitySni}",
@@ -6268,10 +6333,10 @@ EOM
                         "m.media-amazon.com"
                     ],
                     "privateKey": "${xrayRealityPrivateKey}",
-                    "maxTimeDiff": 0, 
+                    "maxTimeDiff": 0,
                     "shortIds": [
                         "",
-                        "${xrayRealityShortId}" 
+                        "${xrayRealityShortId}"
                     ]
                 }
             },
@@ -6349,7 +6414,7 @@ EOM
                 "security": "none",
                 "wsSettings": {
                     "acceptProxyProtocol": true,
-                    "path": "/${configV2rayWebSocketPath}" 
+                    "path": "/${configV2rayWebSocketPath}"
                 }
             }
         },
@@ -6425,7 +6490,7 @@ EOM
                 ],
                 "fallbacks": [
                     {
-                        "dest": 80 
+                        "dest": 80
                     }
                 ]
             },
@@ -6452,7 +6517,7 @@ EOM
                 "security": "none",
                 "wsSettings": {
                     "acceptProxyProtocol": true,
-                    "path": "/${configV2rayWebSocketPath}" 
+                    "path": "/${configV2rayWebSocketPath}"
                 }
             }
         }
@@ -6520,7 +6585,7 @@ read -r -d '' v2rayConfigInboundInput << EOM
                 "security": "none",
                 "wsSettings": {
                     "acceptProxyProtocol": true,
-                    "path": "/${configV2rayWebSocketPath}" 
+                    "path": "/${configV2rayWebSocketPath}"
                 }
             }
         }
@@ -6564,7 +6629,7 @@ EOF
 
     # 增加 V2ray启动脚本
     if [ "$isXray" = "no" ] ; then
-    
+
         cat > ${osSystemMdPath}${promptInfoXrayName}${promptInfoXrayNameServiceName}.service <<-EOF
 [Unit]
 Description=V2Ray
@@ -6615,7 +6680,7 @@ EOF
     ${sudoCmd} chmod +x ${configV2rayPath}/${promptInfoXrayName}
     ${sudoCmd} chmod +x ${osSystemMdPath}${promptInfoXrayName}${promptInfoXrayNameServiceName}.service
     ${sudoCmd} systemctl daemon-reload
-    
+
     ${sudoCmd} systemctl enable ${promptInfoXrayName}${promptInfoXrayNameServiceName}.service
     ${sudoCmd} systemctl restart ${promptInfoXrayName}${promptInfoXrayNameServiceName}.service
 
@@ -6903,7 +6968,7 @@ EOF
     uuid: ${v2rayPassword1},
     额外id: 0,  // AlterID 如果是Vless协议则不需要该项
     流控flow: ${configV2rayVlessXtlsFlowShowInfo},
-    加密方式: none,  
+    加密方式: none,
     传输协议: gRPC,
     gRPC serviceName: ${configV2rayGRPCServiceName},
     底层传输协议: ${configV2rayIsTlsShowInfo},
@@ -6928,7 +6993,7 @@ VLess运行在${configV2rayPortShowInfo}端口 (VLess-TCP-TLS) + (VLess-WS-TLS) 
     uuid: ${v2rayPassword1},
     额外id: 0,  // AlterID 如果是Vless协议则不需要该项
     流控flow: ${configV2rayVlessXtlsFlowShowInfo},
-    加密方式: none, 
+    加密方式: none,
     传输协议: tcp ,
     websocket路径:无,
     底层传输协议: ${configV2rayIsTlsShowInfo},
@@ -6947,10 +7012,10 @@ ${v2rayVlessLinkQR1}
     uuid: ${v2rayPassword1},
     额外id: 0,  // AlterID 如果是Vless协议则不需要该项
     流控flow: ${configV2rayVlessXtlsFlowShowInfo},
-    加密方式: none,  
+    加密方式: none,
     传输协议: websocket,
     websocket路径:/${configV2rayWebSocketPath},
-    底层传输协议:tls,     
+    底层传输协议:tls,
     别名:自己起个任意名称
 }
 
@@ -6972,7 +7037,7 @@ VLess运行在${configV2rayPortShowInfo}端口 (VLess-TCP-XTLS Vision) 不支持
     uuid: ${v2rayPassword1},
     额外id: 0,  // AlterID 如果是Vless协议则不需要该项
     流控flow: ${configV2rayVlessXtlsFlowShowInfo},
-    加密方式: none, 
+    加密方式: none,
     传输协议: tcp ,
     websocket路径:无,
     底层传输协议: ${configV2rayIsTlsShowInfo},
@@ -6999,7 +7064,7 @@ VLess运行在${configV2rayPortShowInfo}端口 (VLess-TCP-REALITY XTLS Vision) �
     uuid: ${v2rayPassword1},
     额外id: 0,  // AlterID 如果是Vless协议则不需要该项
     流控flow: ${configV2rayVlessXtlsFlowShowInfo},
-    加密方式: none, 
+    加密方式: none,
     传输协议: tcp,
     websocket路径:无,
     底层传输协议: ${configV2rayIsTlsShowInfo},
@@ -7010,10 +7075,10 @@ VLess运行在${configV2rayPortShowInfo}端口 (VLess-TCP-REALITY XTLS Vision) �
     别名:自己起个任意名称
 }
 
-serverNames 还可以填入以下任意一个网站:  
-icloud.com   www.icloud.com  apple.com  www.apple.com  mozilla.org  addons.mozilla.org  ebay.com  www.ebay.com 
-walmart.com  www.walmart.com  etsy.com  www.etsy.com  shopify.com  www.shopify.com  samsung.com  www.samsung.com 
-airbnb.com  www.airbnb.com  asml.com  www.asml.com  tsmc.com  www.tsmc.com  pfizer.com  www.pfizer.com 
+serverNames 还可以填入以下任意一个网站:
+icloud.com   www.icloud.com  apple.com  www.apple.com  mozilla.org  addons.mozilla.org  ebay.com  www.ebay.com
+walmart.com  www.walmart.com  etsy.com  www.etsy.com  shopify.com  www.shopify.com  samsung.com  www.samsung.com
+airbnb.com  www.airbnb.com  asml.com  www.asml.com  tsmc.com  www.tsmc.com  pfizer.com  www.pfizer.com
 microsoft.com  www.microsoft.com  support.microsoft.com  office.com  www.office.com  signup.live.com  www.live.com
 outlook.live.com  lovelive-anime.jp  s0.awsstatic.com  d1.awsstatic.com  amazon.com  m.media-amazon.com
 
@@ -7038,7 +7103,7 @@ VLess运行在${configV2rayPortShowInfo}端口 (VLess-TCP-TLS) + (VLess-WS-TLS) 
     uuid: ${v2rayPassword1},
     额外id: 0,  // AlterID 如果是Vless协议则不需要该项
     流控flow: 空
-    加密方式: none, 
+    加密方式: none,
     传输协议: tcp ,
     websocket路径:无,
     底层传输协议: ${configV2rayIsTlsShowInfo},
@@ -7057,10 +7122,10 @@ ${v2rayVlessLinkQR1}
     uuid: ${v2rayPassword1},
     额外id: 0,  // AlterID 如果是Vless协议则不需要该项
     流控flow: ${configV2rayVlessXtlsFlowShowInfo},
-    加密方式: none,  
+    加密方式: none,
     传输协议: websocket,
     websocket路径:/${configV2rayWebSocketPath},
-    底层传输协议:tls,     
+    底层传输协议:tls,
     别名:自己起个任意名称
 }
 
@@ -7076,10 +7141,10 @@ vless://${v2rayPassword1UrlEncoded}@${configSSLDomain}:${configV2rayPortShowInfo
     uuid: ${v2rayPassword1},
     额外id: 0,  // AlterID 如果是Vless协议则不需要该项
     流控flow:  空,
-    加密方式: none,  
+    加密方式: none,
     传输协议: gRPC,
     gRPC serviceName: ${configV2rayGRPCServiceName},
-    底层传输协议:tls,     
+    底层传输协议:tls,
     别名:自己起个任意名称
 }
 
@@ -7100,7 +7165,7 @@ VLess运行在${configV2rayPortShowInfo}端口 (VLess-TCP-TLS) + (VLess-WS-TLS) 
     uuid: ${v2rayPassword1},
     额外id: 0,  // AlterID 如果是Vless协议则不需要该项
     流控flow: xtls-rprx-direct
-    加密方式: none,  
+    加密方式: none,
     传输协议: tcp ,
     websocket路径:无,
     底层传输协议: ${configV2rayIsTlsShowInfo},
@@ -7118,11 +7183,11 @@ ${v2rayVlessLinkQR1}
     端口: ${configV2rayPort},
     uuid: ${v2rayPassword1},
     额外id: 0,  // AlterID 如果是Vless协议则不需要该项
-    流控flow: ${configV2rayVlessXtlsFlowShowInfo}, 
-    加密方式: none,  
+    流控flow: ${configV2rayVlessXtlsFlowShowInfo},
+    加密方式: none,
     传输协议: websocket,
     websocket路径:/${configV2rayWebSocketPath},
-    底层传输协议:tls,     
+    底层传输协议:tls,
     别名:自己起个任意名称
 }
 
@@ -7163,7 +7228,7 @@ EOF
     uuid: ${v2rayPassword1},
     额外id: 0,  // AlterID 如果是Vless协议则不需要该项
     流控flow: xtls-rprx-direct
-    加密方式: none,  
+    加密方式: none,
     传输协议: tcp ,
     websocket路径:无,
     底层传输协议: ${configV2rayIsTlsShowInfo},
@@ -7181,11 +7246,11 @@ ${v2rayVlessLinkQR1}
     端口: ${configV2rayPort},
     uuid: ${v2rayPassword1},
     额外id: 0,  // AlterID 如果是Vless协议则不需要该项
-    流控flow: ${configV2rayVlessXtlsFlowShowInfo}, 
-    加密方式: none,  
+    流控flow: ${configV2rayVlessXtlsFlowShowInfo},
+    加密方式: none,
     传输协议: websocket,
     websocket路径:/${configV2rayWebSocketPath},
-    底层传输协议:tls,     
+    底层传输协议:tls,
     别名:自己起个任意名称
 }
 
@@ -7233,7 +7298,7 @@ EOF
         green "    伪装站点为 https://${configSSLDomain}!"
         green "    伪装站点的静态html内容放置在目录 ${configWebsitePath}, 可自行更换网站内容!"
     fi
-    
+
     red "    ${promptInfoXrayInstall} 服务器端配置路径 ${configV2rayPath}/config.json !"
     green "    ${promptInfoXrayInstall} 访问日志 ${configV2rayAccessLogFilePath} !"
     green "    ${promptInfoXrayInstall} 错误日志 ${configV2rayErrorLogFilePath} ! "
@@ -7275,22 +7340,22 @@ EOF
     cat >> ${configReadme} <<-EOF
 
 
-${promptInfoXrayInstall} Version: ${promptInfoXrayVersion} 安装成功 ! 
-${promptInfoXrayInstall} 服务器端配置路径 ${configV2rayPath}/config.json 
+${promptInfoXrayInstall} Version: ${promptInfoXrayVersion} 安装成功 !
+${promptInfoXrayInstall} 服务器端配置路径 ${configV2rayPath}/config.json
 
 ${promptInfoXrayInstall} 访问日志 ${configV2rayAccessLogFilePath}
 ${promptInfoXrayInstall} 错误日志 ${configV2rayErrorLogFilePath}
 
 ${promptInfoXrayInstall} 查看日志命令: journalctl -n 50 -u ${promptInfoXrayName}${promptInfoXrayNameServiceName}.service
 
-${promptInfoXrayInstall} 启动命令: systemctl start ${promptInfoXrayName}${promptInfoXrayNameServiceName}.service  
-${promptInfoXrayInstall} 停止命令: systemctl stop ${promptInfoXrayName}${promptInfoXrayNameServiceName}.service  
+${promptInfoXrayInstall} 启动命令: systemctl start ${promptInfoXrayName}${promptInfoXrayNameServiceName}.service
+${promptInfoXrayInstall} 停止命令: systemctl stop ${promptInfoXrayName}${promptInfoXrayNameServiceName}.service
 ${promptInfoXrayInstall} 重启命令: systemctl restart ${promptInfoXrayName}${promptInfoXrayNameServiceName}.service
-${promptInfoXrayInstall} 查看运行状态命令:  systemctl status ${promptInfoXrayName}${promptInfoXrayNameServiceName}.service 
+${promptInfoXrayInstall} 查看运行状态命令:  systemctl status ${promptInfoXrayName}${promptInfoXrayNameServiceName}.service
 
 ${promptInfoXrayInstall} 配置信息如下, 请自行复制保存, 密码任选其一 (密码即用户ID或UUID) !
 
-服务器地址: ${configSSLDomain}  
+服务器地址: ${configSSLDomain}
 端口: ${configV2rayPortShowInfo}
 用户ID或密码1: ${v2rayPassword1}
 用户ID或密码2: ${v2rayPassword2}
@@ -7358,7 +7423,7 @@ function removeV2ray(){
 
 
             showHeaderGreen " ${promptInfoXrayName}${promptInfoXrayNameServiceName} 卸载完毕 !"
-            
+
         else
             showHeaderRed " 系统没有安装 ${promptInfoXrayName}${promptInfoXrayNameServiceName}, 退出卸载"
         fi
@@ -7393,7 +7458,7 @@ function upgradeV2ray(){
             fi
         fi
 
-        
+
         if [ "$isXray" = "no" ] ; then
             getV2rayVersion "v2ray"
             green " =================================================="
@@ -7426,7 +7491,7 @@ function upgradeV2ray(){
             sed -i 's/-config/run -config/g' ${osSystemMdPath}${promptInfoXrayName}${promptInfoXrayNameServiceName}.service
         fi
 
-        
+
         ${sudoCmd} systemctl daemon-reload
         ${sudoCmd} systemctl start ${promptInfoXrayName}${promptInfoXrayNameServiceName}.service
 
@@ -7440,7 +7505,7 @@ function upgradeV2ray(){
             green "     升级成功 Xray Version: ${versionXray} !"
             green " =================================================="
         fi
-                
+
     else
         red " 系统没有安装 ${promptInfoXrayName}${promptInfoXrayNameServiceName}, 退出卸载"
     fi
@@ -7492,7 +7557,7 @@ function upgradeV2ray(){
 function downloadTrojanWebBin(){
     # https://github.com/Jrohy/trojan/releases/download/v2.12.2/trojan-linux-amd64
     # https://github.com/Jrohy/trojan/releases/download/v2.12.2/trojan-linux-arm64
-    
+
     if [[ ${osArchitecture} == "arm" || ${osArchitecture} == "arm64" ]] ; then
         downloadFilenameTrojanWeb="trojan-linux-arm64"
     fi
@@ -7599,7 +7664,7 @@ function upgradeTrojanWeb(){
 
     mkdir -p ${configDownloadTempPath}/upgrade/trojan-web
     downloadTrojanWebBin "upgrade"
-    
+
     mv -f ${configDownloadTempPath}/upgrade/trojan-web/trojan-web ${configTrojanWebPath}
     chmod +x ${configTrojanWebPath}/trojan-web
 
@@ -7622,7 +7687,7 @@ function removeTrojanWeb(){
     ${sudoCmd} systemctl stop trojan.service
     ${sudoCmd} systemctl stop trojan-web.service
     ${sudoCmd} systemctl disable trojan-web.service
-    
+
 
     # 移除trojan
     rm -rf /usr/bin/trojan
@@ -7632,7 +7697,7 @@ function removeTrojanWeb(){
     rm -f /usr/local/etc/trojan/config.json
 
 
-    # 移除trojan web 管理程序 
+    # 移除trojan web 管理程序
     # rm -f /usr/local/bin/trojan
     rm -rf ${configTrojanWebPath}
     rm -f ${osSystemMdPath}trojan-web.service
@@ -7838,8 +7903,6 @@ function downloadMosdns(){
     cd ${configMosdnsBinPath} || exit
 
 
-
-    
     if [[ "${isInstallMosdns}" == "true" ]]; then
         versionMosdns=$(getGithubLatestReleaseVersion "IrineSistiana/mosdns")
 
@@ -7854,10 +7917,10 @@ function downloadMosdns(){
         if [[ ${osArchitecture} == "arm64" ]] ; then
             downloadFilenameMosdns="mosdns-linux-arm64.zip"
         fi
-        
+
         downloadAndUnzip "https://github.com/IrineSistiana/mosdns/releases/download/v${versionMosdns}/${downloadFilenameMosdns}" "${configMosdnsBinPath}" "${downloadFilenameMosdns}"
         ${sudoCmd} chmod +x "${configMosdnsBinPath}/mosdns"
-    
+
     else
         versionMosdnsCn=$(getGithubLatestReleaseVersion "IrineSistiana/mosdns-cn")
 
@@ -7883,13 +7946,12 @@ function downloadMosdns(){
         red "请检查网络后, 重新运行本脚本!"
         echo
         exit 1
-    fi 
+    fi
 
 
     rm -rf "${configMosdnsPath}"
-    mkdir -p "${configMosdnsPath}"
+    mkdir -p "${configMosdnsPath}/rule"
     cd ${configMosdnsPath} || exit
-
 
 
     if [[ "${isUseEasyMosdnsConfig}" == "false" ]]; then
@@ -7911,12 +7973,55 @@ function downloadMosdns(){
         geositeUrl="https://github.com/Loyalsoldier/v2ray-rules-dat/releases/latest/download/geosite.dat"
         geoipeUrl="https://github.com/Loyalsoldier/v2ray-rules-dat/releases/latest/download/geoip.dat"
         cnipUrl="https://raw.githubusercontent.com/Loyalsoldier/geoip/release/cn.dat"
+        privateUrl="https://raw.githubusercontent.com/Loyalsoldier/domain-list-custom/release/private.txt"
 
-        wget -O ${configMosdnsPath}/${geositeFilename} ${geositeUrl}
-        wget -O ${configMosdnsPath}/${geoipFilename} ${geoipeUrl}
-        wget -O ${configMosdnsPath}/${cnipFilename} ${cnipUrl}
+        wget -O ${configMosdnsPath}/rule/${geositeFilename} ${geositeUrl}
+        wget -O ${configMosdnsPath}/rule/${geoipFilename} ${geoipeUrl}
+        wget -O ${configMosdnsPath}/rule/${cnipFilename} ${cnipUrl}
+        wget -O ${configMosdnsPath}/rule/private.txt ${privateUrl}
+
+        hostsUrl="https://raw.githubusercontent.com/Journalist-HK/mosdns-config/main/rule/hosts.txt"
+
+        china_domain_listUrl="https://raw.githubusercontent.com/pmkol/easymosdns/main/rules/china_domain_list.txt"
+        china_ip_listUrl="https://raw.githubusercontent.com/pmkol/easymosdns/main/rules/china_ip_list.txt"
+        white_listUrl="https://raw.githubusercontent.com/Journalist-HK/Rules/master/white_list.txt"
+        block_listUrl="https://raw.githubusercontent.com/Journalist-HK/Rules/master/block_list.txt"
+
+        grey_listUrl="https://raw.githubusercontent.com/Journalist-HK/Rules/master/grey_list.txt"
+        ipv6_domain_listUrl="https://raw.githubusercontent.com/Journalist-HK/Rules/master/ipv6_domain_list.txt"
+        original_domain_listUrl="https://raw.githubusercontent.com/Journalist-HK/Rules/main/original_domain_list.txt"
+        akamai_domain_listUrl="https://raw.githubusercontent.com/Journalist-HK/Rules/master/akamai_domain_list.txt"
+        cdn_domain_listUrl="https://raw.githubusercontent.com/pmkol/easymosdns/rules/cdn_domain_list.txt"
+
+
+        wget -O ${configMosdnsPath}/rule/hosts.txt ${hostsUrl}
+        wget -O ${configMosdnsPath}/rule/china_domain_list.txt ${china_domain_listUrl}
+        wget -O ${configMosdnsPath}/rule/china_ip_list.txt ${china_ip_listUrl}
+        wget -O ${configMosdnsPath}/rule/white_list.txt ${white_listUrl}
+        wget -O ${configMosdnsPath}/rule/block_list.txt ${block_listUrl}
+
+        wget -O ${configMosdnsPath}/rule/grey_list.txt ${grey_listUrl}
+        wget -O ${configMosdnsPath}/rule/ipv6_domain_list.txt ${ipv6_domain_listUrl}
+        wget -O ${configMosdnsPath}/rule/original_domain_list.txt ${original_domain_listUrl}
+        wget -O ${configMosdnsPath}/rule/akamai_domain_list.txt ${akamai_domain_listUrl}
+        wget -O ${configMosdnsPath}/rule/cdn_domain_list.txt ${cdn_domain_listUrl}
+
+
+        wget -O ${configMosdnsPath}/rule/gfw.txt "https://raw.githubusercontent.com/Loyalsoldier/v2ray-rules-dat/release/gfw.txt"
+        wget -O ${configMosdnsPath}/rule/greatfire.txt "https://raw.githubusercontent.com/Loyalsoldier/v2ray-rules-dat/release/greatfire.txt"
+        wget -O ${configMosdnsPath}/rule/custom_list.txt "https://raw.githubusercontent.com/Journalist-HK/Rules/master/custom_list.txt"
+
+        wget -O ${configMosdnsPath}/rule/gfw_ip_list.txt "https://raw.githubusercontent.com/pmkol/easymosdns/rules/gfw_ip_list.txt"
+        wget -O ${configMosdnsPath}/rule/facebook.txt "https://raw.githubusercontent.com/Loyalsoldier/geoip/release/text/facebook.txt"
+        wget -O ${configMosdnsPath}/rule/twitter.txt "https://raw.githubusercontent.com/Loyalsoldier/geoip/release/text/twitter.txt"
+
+        wget -O ${configMosdnsPath}/rule/ip.txt "https://raw.githubusercontent.com/XIU2/CloudflareSpeedTest/master/ip.txt"
+        wget -O ${configMosdnsPath}/rule/ipv6.txt "https://raw.githubusercontent.com/XIU2/CloudflareSpeedTest/master/ipv6.txt"
+        wget -O ${configMosdnsPath}/rule/cloudfront.txt "https://raw.githubusercontent.com/Journalist-HK/Rules/master/cloudfront.txt"
+        wget -O ${configMosdnsPath}/rule/cloudfront_ipv6.txt "https://raw.githubusercontent.com/Journalist-HK/Rules/master/cloudfront_ipv6.txt"
+        wget -O ${configMosdnsPath}/rule/fastly.txt "https://raw.githubusercontent.com/Loyalsoldier/geoip/release/text/fastly.txt"
+
     fi
-
 
 }
 
@@ -7931,7 +8036,7 @@ function installMosdns(){
         echo
         exit
     fi
-    
+
     # https://askubuntu.com/questions/27213/what-is-the-linux-equivalent-to-windows-program-files
 
 
@@ -7943,24 +8048,23 @@ function installMosdns(){
         exit 1
     fi
 
-
     if [ -f "${configMosdnsBinPath}/mosdns-cn" ]; then
         echo
         green " =================================================="
         green " 检测到 mosdns-cn 已安装, 退出安装! "
         echo
-        exit 1        
+        exit 1
     fi
 
     echo
     green " =================================================="
     green " 请选择安装 Mosdns 还是 Mosdns-cn DNS 服务器:"
     echo
-    green " 1. Mosdns 配置规则比较复杂"
-    green " 2. Mosdns-cn, 容易配置, 相当于Mosdns配置简化版 推荐使用"
+    green " 1. Mosdns 配置规则比较复杂 推荐使用"
+    green " 2. Mosdns-cn, 容易配置, 相当于Mosdns配置简化版 "
     echo
     read -r -p "请选择Mosdns还是Mosdns-cn, 默认直接回车安装Mosdns-cn, 请输入纯数字:" isInstallMosdnsServerInput
-    isInstallMosdnsServerInput=${isInstallMosdnsServerInput:-2}
+    isInstallMosdnsServerInput=${isInstallMosdnsServerInput:-1}
     echo
 
     if [[ "${isInstallMosdnsServerInput}" == "1" ]]; then
@@ -7976,26 +8080,20 @@ function installMosdns(){
         isUseEasyConfigInput=${isUseEasyConfigInput:-n}
 
         if [[ "$isUseEasyConfigInput" == [Nn] ]]; then
-            isUseEasyMosdnsConfig="false" 
+            isUseEasyMosdnsConfig="false"
         else
             isUseEasyMosdnsConfig="true"
         fi
-
     else
         isInstallMosdns="false"
-        isinstallMosdnsName="mosdns-cn"        
+        isinstallMosdnsName="mosdns-cn"
     fi
-
-
-
 
     echo
     green " ================================================== "
     green "    开始安装 ${isinstallMosdnsName} !"
     green " ================================================== "
     echo
-    
-
 
     echo
     green " ================================================== "
@@ -8014,59 +8112,29 @@ function installMosdns(){
     fi
 
 
-
-
     echo
     green " ================================================== "
-    green " 是否添加自建的DNS服务器, 默认直接回车不添加"
-    green " 选是为添加DNS服务器, 建议先架设好DNS服务器后再运行此脚本"
-    green " 本脚本默认已经内置了多个DNS服务器地址"
+    green " 是否添加本地运营商的DNS服务器, 默认直接回车不添加, 建议添加"
+    green " 选y是 添加本地运营商DNS服务器, 请通过光猫或路由器查看DNS的IP"
     echo
-    read -r -p "是否添加自建的DNS服务器? 默认直接回车为不添加, 请输入[y/N]:" isAddNewDNSServerInput
+    read -r -p "是否添加运营商的DNS服务器? 默认直接回车为不添加, 请输入[y/N]:" isAddNewDNSServerInput
     isAddNewDNSServerInput=${isAddNewDNSServerInput:-n}
 
-    addNewDNSServerIPMosdnsCnText=""
-    addNewDNSServerDomainMosdnsCnText=""
-
-    addNewDNSServerIPText=""
-    addNewDNSServerDomainText=""
     if [[ "$isAddNewDNSServerInput" == [Nn] ]]; then
-        echo 
+        echo
+        chinaDNSServerIPInput="218.2.2.2"
     else
         echo
         green " ================================================== "
-        green " 请输入自建的DNS服务器IP 格式例如 1.1.1.1"
+        green " 请输入本地运营商DNS服务器IP 格式例如 1.1.1.1"
         green " 请保证端口53 提供DNS解析服务, 如果是非53端口请填写端口号, 格式例如 1.1.1.1:8053"
-        echo 
-        read -r -p "请输入自建DNS服务器IP地址, 请输入:" isAddNewDNSServerIPInput
-
-        if [ -n "${isAddNewDNSServerIPInput}" ]; then
-            addNewDNSServerIPMosdnsCnText="\"udp://${isAddNewDNSServerIPInput}\", "
-            read -r -d '' addNewDNSServerIPText << EOM
-        - addr: "udp://${isAddNewDNSServerIPInput}"
-          idle_timeout: 500
-          trusted: true
-EOM
-
-        fi
-
+        green " 请通过光猫或路由器查看DNS的IP 直接回车默认 218.2.2.2 江苏电信"
+        green " 全国DNS列表 https://github.com/easonjim/dns-server-list"
         echo
-        green " ================================================== "
-        green " 请输入自建的DNS服务器的域名 用于提供DOH服务, 格式例如 www.dns.com"
-        green " 请保证服务器在 /dns-query 提供DOH服务, 例如 https://www.dns.com/dns-query"
-        echo 
-        read -r -p "请输入自建DOH服务器的域名, 不要输入https://, 请直接输入域名:" isAddNewDNSServerDomainInput
-
-        if [ -n "${isAddNewDNSServerDomainInput}" ]; then
-            addNewDNSServerDomainMosdnsCnText="\"https://${isAddNewDNSServerDomainInput}/dns-query\", "
-            read -r -d '' addNewDNSServerDomainText << EOM
-        - addr: "https://${isAddNewDNSServerDomainInput}/dns-query"       
-          idle_timeout: 400
-          trusted: true
-EOM
-        fi
+        read -r -p "请输入DNS服务器IP地址:" chinaDNSServerIPInput
+        chinaDNSServerIPInput=${chinaDNSServerIPInput:-218.2.2.2}
     fi
-
+    echo
 
     downloadMosdns
 
@@ -8074,7 +8142,6 @@ EOM
     if [[ "${isInstallMosdns}" == "true" ]]; then
 
         rm -f "${configMosdnsPath}/config.yaml"
-
 
         if [[ "${isUseEasyMosdnsConfig}" == "true" ]]; then
             downloadAndUnzip "https://mirror.apad.pro/dns/easymosdns.tar.gz" "${configMosdnsPath}" "easymosdns.tar.gz"
@@ -8088,188 +8155,558 @@ EOM
             ${configMosdnsPath}/tools/config-reset
 
         else
-        
 
-            cat > "${configMosdnsPath}/config.yaml" <<-EOF    
 
+            cat > "${configMosdnsPath}/config.yaml" <<-EOF
 log:
   level: info
   file: "${configMosdnsPath}/mosdns.log"
 
-data_providers:
-  - tag: geosite
-    file: ${configMosdnsPath}/${geositeFilename}
-    auto_reload: true
-  - tag: geoip
-    file: ${configMosdnsPath}/${geoipFilename}
-    auto_reload: true
+# []string, 从其他配置文件载入 plugins 插件设置。
+# include 的插件会比本配置文件中的插件先初始化。
 
 plugins:
-  # 缓存
-  - tag: cache
-    type: cache
-    args:
-      size: 2048
-      lazy_cache_ttl: 86400 
-      cache_everything: true
-
-  # hosts map
-  # - tag: map_hosts
-  #   type: hosts
+  # - tag: ecs_cn
+  #   type: ecs_handler
   #   args:
-  #     hosts:
-  #       - 'google.com 0.0.0.0'
-  #       - 'api.miwifi.com 127.0.0.1'
-  #       - 'www.baidu.com 0.0.0.0'
+  #     forward: false
+  #     preset: 58.208.0.0 # 电信，请针对不同的运营商自行修改
+  #     send: false
+  #     mask4: 12
+  #     mask6: 28
 
-  # 转发至本地服务器的插件
-  - tag: forward_local
-    type: fast_forward
+  - tag: ecs_tw
+    type: ecs_handler
     args:
-      upstream:
-        - addr: "udp://223.5.5.5"
-          trusted: true
-        - addr: "udp://119.29.29.29"
-          trusted: true
+      forward: false
+      preset: 168.95.0.0
+      send: false
+      mask4: 16
+      # mask6: 40
 
-  # 转发至远程服务器的插件
-  - tag: forward_remote
-    type: fast_forward
+  - tag: ecs_us
+    type: ecs_handler
     args:
-      upstream:
-${addNewDNSServerIPText}
-${addNewDNSServerDomainText}
-        - addr: "udp://208.67.222.222"
-          trusted: true
+      forward: false
+      preset: 38.94.109.0
+      send: false
+      mask4: 24
+      # mask6: 40
 
-        - addr: "udp://1.0.0.1"
-          trusted: true
-        - addr: "https://dns.cloudflare.com/dns-query"
-          idle_timeout: 400
-          trusted: true
+  # 不应处理本地 DNS 请求，防止死循环。正确顺序应该是 dnsmasq --> OpenClash（可选）--> mosdns。
+  # - tag: "forward_lan"
+  #   type: forward
+  #   args:
+  #     concurrent: 1
+  #     upstream:
+  #       - addr: "192.168.1.1"
 
-
-        - addr: "udp://5.2.75.231"
-          idle_timeout: 400
-          trusted: true
-
-        - addr: "udp://185.121.177.177"
-          idle_timeout: 400
-          trusted: true        
-
-        - addr: "udp://94.130.180.225"
-          idle_timeout: 400
-          trusted: true     
-
-        - addr: "udp://78.47.64.161"
-          idle_timeout: 400
-          trusted: true 
-
-        - addr: "udp://51.38.83.141"          
-
-        - addr: "udp://176.9.93.198"
-        - addr: "udp://176.9.1.117"                  
-
-        - addr: "udp://88.198.92.222"                  
-
-
-  # 匹配本地域名的插件
-  - tag: query_is_local_domain
-    type: query_matcher
+  - tag: "forward_local"
+    type: forward
     args:
-      domain:
-        - 'provider:geosite:cn'
+      concurrent: 2
+      upstreams:
+        - addr: "${chinaDNSServerIPInput}" # 江苏电信 DNS，自行修改
+        - addr: "218.4.4.4" # 江苏电信 DNS，自行修改
+        - addr: "210.22.70.3" # 上海联通 DNS，自行修改
 
-  - tag: query_is_gfw_domain
-    type: query_matcher
+  - tag: "forward_alidns"
+    type: forward
     args:
-      domain:
-        - 'provider:geosite:gfw'
+      concurrent: 1
+      upstreams:
+        - addr: "quic://223.6.6.6:853"
+        - addr: "https://dns.alidns.com/dns-query"
+          dial_addr: "223.5.5.5"
+          enable_http3: false
 
-  # 匹配非本地域名的插件
-  - tag: query_is_non_local_domain
-    type: query_matcher
+  - tag: "forward_easy"
+    type: "forward"
     args:
-      domain:
-        - 'provider:geosite:geolocation-!cn'
+      concurrent: 1
+      upstreams:
+        - addr: "https://doh.apad.pro/dns-query"
+          bootstrap: "218.2.2.2"
+          enable_http3: false
 
-  # 匹配广告域名的插件
-  - tag: query_is_ad_domain
-    type: query_matcher
+  - tag: "forward_remote"
+    type: "forward"
     args:
-      domain:
-        - 'provider:geosite:category-ads-all'
+      concurrent: 1 # 并发数。每次请求随机选取 concurrent 个 upstreams 发送请求。
+                    # 取最快返回的应答。超过 3 最多选 3 个。默认 1。
+      upstreams:
+        - addr: "https://162.159.36.1/dns-query"
+          enable_http3: false
+          # socks5: "127.0.0.1:1080" # 目前暂不支持用户名密码认证，只支持基于 TCP 的协议
+        - addr: "https://162.159.46.1/dns-query"
+          enable_http3: false
+        # - addr: "https://doh.opendns.com/dns-query"
+        #   dial_addr: "146.112.41.2"
+        #   enable_http3: false
+        # - addr: "https://public.dns.iij.jp/dns-query"
+        #   dial_addr: 103.2.57.5
+        #   enable_http3: false
+        # - addr: "tcp://208.67.220.220:5353" # CISCO OpenDNS
+        #   enable_pipeline: true
 
-  # 匹配本地 IP 的插件
-  - tag: response_has_local_ip
-    type: response_matcher
-    args:
-      ip:
-        - 'provider:geoip:cn'
-
-
-  # 主要的运行逻辑插件
-  # sequence 插件中调用的插件 tag 必须在 sequence 前定义，
-  # 否则 sequence 找不到对应插件。
-  - tag: main_sequence
+  - tag: remote_sequence
     type: sequence
     args:
-      exec:
-        # - map_hosts
+      - exec: prefer_ipv4
+      - exec: \$ecs_tw
+      - exec: \$forward_remote
+      - exec: return
 
-        # 缓存
-        - cache
+  - tag: "fallback"
+    type: "fallback"
+    args:
+      primary: forward_easy    # easy
+      secondary: forward_remote  # remote
+      threshold: 360           # 无响应回滚阈值。单位毫秒。默认 500 。
+      always_standby: true     # 副可执行插件始终待命。
 
-        # 屏蔽广告域名 ad block
-        - if: query_is_ad_domain
-          exec:
-            - _new_nxdomain_response
-            - _return
+  - tag: fallback_sequence
+    type: sequence
+    args:
+      - exec: prefer_ipv4
+      - exec: \$ecs_tw
+      - exec: \$fallback
+      - exec: return
 
-        # 已知的本地域名用本地服务器解析
-        - if: query_is_local_domain
-          exec:
-            - forward_local
-            - _return
+  - tag: fallback_sequence_ipv6
+    type: sequence
+    args:
+      - exec: prefer_ipv6
+      - exec: \$fallback
+      - exec: return
 
-        - if: query_is_gfw_domain
-          exec:
-            - forward_remote
-            - _return
+  - tag: has_resp_sequence
+    type: sequence
+    args:
+      - matches:
+          - has_resp
+        exec: accept
 
-        # 已知的非本地域名用远程服务器解析
-        - if: query_is_non_local_domain
-          exec:
-            - _prefer_ipv4
-            - forward_remote
-            - _return
 
-          # 剩下的未知域名用 IP 分流。
-          # primary 从本地服务器获取应答，丢弃非本地 IP 的结果。
-        - primary:
-            - forward_local
-            - if: "(! response_has_local_ip) && [_response_valid_answer]"
-              exec:
-                - _drop_response
-          secondary:
-            - _prefer_ipv4
-            - forward_remote
-          fast_fallback: 200
-          always_standby: true
 
-servers:
-  - exec: main_sequence
-    listeners:
-      - protocol: udp
-        addr: ":${mosDNSServerPort}"
-      - protocol: tcp
-        addr: ":${mosDNSServerPort}"
+
+  - tag: "hosts"
+    type: "hosts"
+    args:
+      # entries:
+      #   - "google.com 108.177.122.113"
+      files:
+        - "/etc/mosdns/rule/hosts.txt"
+
+  - tag: geosite_cn # 国内域名
+    type: domain_set
+    args:
+      files:
+        - "/etc/mosdns/rule/china_domain_list.txt" # https://raw.githubusercontent.com/pmkol/easymosdns/rules/china_domain_list.txt
+
+  - tag: geoip_cn # 国内 IP
+    type: ip_set
+    args:
+      files:
+        - "/etc/mosdns/rule/china_ip_list.txt" # https://raw.githubusercontent.com/pmkol/easymosdns/rules/china_ip_list.txt
+
+  - tag: privatelist # 内网域名
+    type: domain_set
+    args:
+      files:
+        - "/etc/mosdns/rule/private.txt" # https://raw.githubusercontent.com/Loyalsoldier/domain-list-custom/release/private.txt
+
+  - tag: whitelist
+    type: domain_set
+    args:
+      files:
+        - "/etc/mosdns/rule/white_list.txt" # https://raw.githubusercontent.com/Journalist-HK/Rules/master/white_list.txt
+
+  - tag: blocklist
+    type: domain_set
+    args:
+      files:
+        - "/etc/mosdns/rule/block_list.txt" # https://raw.githubusercontent.com/Journalist-HK/Rules/master/block_list.txt
+
+  - tag: greylist # 用来存放被污染的域名。
+    type: domain_set
+    args:
+      files:
+        - "/etc/mosdns/rule/grey_list.txt" # https://raw.githubusercontent.com/Journalist-HK/Rules/master/grey_list.txt
+
+  - tag: ipv6list # 用来存放优先走 ipv6 的域名。
+    type: domain_set
+    args:
+      files:
+        - "/etc/mosdns/rule/ipv6_domain_list.txt" # https://raw.githubusercontent.com/Journalist-HK/Rules/master/ipv6_domain_list.txt
+
+  - tag: originallist # 用来存放优不进行 IP 优选的域名。
+    type: domain_set
+    args:
+      files:
+        - "/etc/mosdns/rule/original_domain_list.txt" # https://raw.githubusercontent.com/Journalist-HK/Rules/master/original_domain_list.txt
+
+  - tag: akamailist
+    type: domain_set
+    args:
+      files:
+        - "/etc/mosdns/rule/akamai_domain_list.txt" # https://raw.githubusercontent.com/Journalist-HK/Rules/master/akamai_domain_list.txt
+
+  - tag: cdnlist
+    type: domain_set
+    args:
+      exps:
+        - "cloudflare.com"
+        - "cloudfront.net"
+        - "ghproxy.com"
+        - "microsoft.com"
+        - "playstation.com"
+        - "playstation.net"
+        - "redhat.com"
+        - "samsung.com"
+        - "ubi.com"
+        - "ubisoft.com"
+        - "xboxlive.com"
+      files:
+        - "/etc/mosdns/rule/cdn_domain_list.txt" # https://raw.githubusercontent.com/pmkol/easymosdns/rules/cdn_domain_list.txt
+
+  - tag: gfwlist
+    type: domain_set
+    args:
+      files:
+        - "/etc/mosdns/rule/gfw.txt" # https://raw.githubusercontent.com/Loyalsoldier/v2ray-rules-dat/release/gfw.txt
+        - "/etc/mosdns/rule/greatfire.txt" # https://raw.githubusercontent.com/Loyalsoldier/v2ray-rules-dat/release/greatfire.txt
+        - "/etc/mosdns/rule/custom_list.txt" # https://raw.githubusercontent.com/Journalist-HK/Rules/master/custom_list.txt
+
+  - tag: banned_ip
+    type: ip_set
+    args:
+      ips:
+        - "0.0.0.0/32"
+        - "2001::/32"
+      files:
+        - "/etc/mosdns/rule/gfw_ip_list.txt" # https://raw.githubusercontent.com/pmkol/easymosdns/rules/gfw_ip_list.txt
+        - "/etc/mosdns/rule/facebook.txt" # https://raw.githubusercontent.com/Loyalsoldier/geoip/release/text/facebook.txt
+        # - "/etc/mosdns/rule/telegram.txt" # https://raw.githubusercontent.com/Loyalsoldier/geoip/release/text/telegram.txt
+        - "/etc/mosdns/rule/twitter.txt" # https://raw.githubusercontent.com/Loyalsoldier/geoip/release/text/twitter.txt
+
+  - tag: cloudflare_ip
+    type: ip_set
+    args:
+      files:
+        - "/etc/mosdns/rule/ip.txt" # https://raw.githubusercontent.com/XIU2/CloudflareSpeedTest/master/ip.txt
+
+  - tag: cloudflare_ipv6
+    type: ip_set
+    args:
+      files:
+        - "/etc/mosdns/rule/ipv6.txt" # https://raw.githubusercontent.com/XIU2/CloudflareSpeedTest/master/ipv6.txt
+
+  - tag: cloudfront_ip
+    type: ip_set
+    args:
+      files:
+        - "/etc/mosdns/rule/cloudfront.txt" # https://raw.githubusercontent.com/Journalist-HK/Rules/master/cloudfront.txt
+
+  - tag: cloudfront_ipv6
+    type: ip_set
+    args:
+      files:
+        - "/etc/mosdns/rule/cloudfront_ipv6.txt" # https://raw.githubusercontent.com/Journalist-HK/Rules/master/cloudfront_ipv6.txt
+
+  - tag: fastly_ip
+    type: ip_set
+    args:
+      files:
+        - "/etc/mosdns/rule/fastly.txt" # https://raw.githubusercontent.com/Loyalsoldier/geoip/release/text/fastly.txt
+
+  - tag: "cache_0"
+    type: "cache"
+    args:
+      size: 8192  # 默认: 1024。
+      # lazy_cache_ttl > 0 会启用 lazy cache。
+      # 所有应答都会在缓存中存留 lazy_cache_ttl 秒，但自身的 TTL 仍然有效。如果命中过期的应答，
+      # 则缓存会立即返回 TTL 为 5 的应答，然后自动在后台发送请求更新数据。
+      lazy_cache_ttl: 259200  # 默认: 0（禁用 lazy cache）。
+                              # 建议值 86400（1天）~ 259200（3天）
+      dump_file: /usr/share/mosdns/cache.dump
+      # (实验性) 自动保存间隔。单位秒。默认 600。
+      # 如果距离上次 dump 有 1024 次更新，则自动保存。
+      dump_interval: 7200
+
+
+
+
+
+
+
+  # IP 优选，需要定期修改，最好填写 2 - 4 个
+  - tag: blackhole_akamai # 替换部分 AKAMAI 域名 IP，详见 https://github.com/IrineSistiana/mosdns/discussions/489
+    type: sequence
+    args:
+      - exec: black_hole 119.149.188.15 202.142.229.59 223.44.51.33 # best_akamai_ip
+      - exec: ttl 3600-0
+      - exec: accept # 运行 black_hole 之后接受请求，不再进行后续判断
+
+  - tag: blackhole_akamai_ipv6
+    type: sequence
+    args:
+      - exec: black_hole 2600:140b:1000::1730:d5ab 2600:140b:1000::1730:d5ce # best_akamai_ipv6
+      - exec: ttl 3600-0
+      - exec: accept
+
+  - tag: blackhole_cloudflare
+    type: sequence
+    args:
+      - exec: black_hole 104.17.7.198 104.17.61.114 162.159.0.195 162.159.7.75 # best_cloudflare_ip
+      - exec: ttl 3600-0
+      - exec: accept
+
+  - tag: blackhole_cloudflare_ipv6
+    type: sequence
+    args:
+      - exec: black_hole 2a06:98c1:310f::e0c0:131c:2cb3 2a06:98c1:310f::ee3c:1d43:fc2e:6f6c # best_cloudflare_ipv6
+      - exec: ttl 3600-0
+      - exec: accept
+
+  - tag: blackhole_cloudfront
+    type: sequence
+    args:
+      - exec: black_hole 18.172.26.139 18.172.28.94 52.84.151.126 52.84.228.48 # best_cloudfront_ip
+      - exec: ttl 3600-0
+      - exec: accept
+
+  - tag: blackhole_cloudfront_ipv6
+    type: sequence
+    args:
+      - exec: black_hole 2600:9000:20e9:1edf:3560:977b:c990:1f75 2600:9000:20e9:1edf:35c0:29ed:b6ac:7b3b # best_cloudfront_ipv6
+      - exec: ttl 3600-0
+      - exec: accept
+
+  - tag: remote_sequence_us # 使用 US ECS 请求上游
+    type: sequence
+    args:
+      - exec: prefer_ipv4
+      - exec: \$ecs_us
+      - exec: \$forward_remote
+      - exec: jump has_resp_sequence
+
+  - tag: fallback_sequence_us # 使用 US ECS 请求上游
+    type: sequence
+    args:
+      - exec: prefer_ipv4
+      - exec: \$ecs_us
+      - exec: \$fallback
+      - exec: jump has_resp_sequence
+
+  - tag: change_cdn_ip_akamai
+    type: sequence
+    args:
+      - matches:
+          - cname akamai.net
+          - qtype 1
+          - has_wanted_ans # 防止纯 IPV6 域名被替换
+        exec: jump blackhole_akamai
+      - matches:
+          - cname akamai.net
+          - qtype 28
+          - has_wanted_ans
+        exec: jump blackhole_akamai_ipv6 # 如果不需要对纯 IPV6 域名优选可以去掉这一段
+      - exec: return
+
+  - tag: change_cdn_ip_cf # https://github.com/XIU2/CloudflareSpeedTest/discussions/317
+    type: sequence
+    args:
+      - matches:
+          - qtype 1
+          - has_wanted_ans
+          - resp_ip \$cloudflare_ip
+        exec: jump blackhole_cloudflare
+      - matches:
+          - qtype 1
+          - has_wanted_ans
+          - resp_ip \$cloudfront_ip
+        exec: jump blackhole_cloudfront
+      - matches:
+          - qtype 28
+          - has_wanted_ans
+          - resp_ip \$cloudflare_ipv6
+        exec: jump blackhole_cloudflare_ipv6
+      - matches:
+          - qtype 28
+          - has_wanted_ans
+          - resp_ip \$cloudfront_ipv6
+        exec: jump blackhole_cloudfront_ipv6
+      - exec: return
+
+  - tag: reforward_fastly_remote # 使用 US ECS 再次查询优化 Fastly CDN 结果
+    type: sequence
+    args:
+      - matches:
+          - resp_ip \$fastly_ip
+        exec: jump remote_sequence_us
+      - exec: return
+
+  - tag: reforward_fastly_fallback # 使用 US ECS 再次查询优化 Fastly CDN 结果
+    type: sequence
+    args:
+      - matches:
+          - resp_ip \$fastly_ip
+        exec: jump fallback_sequence_us
+      - exec: return
+
+  - tag: gfw_sequence # 处理 GFW 域名
+    type: sequence
+    args:
+      - exec: jump remote_sequence
+      - exec: jump change_cdn_ip_akamai
+      - exec: jump change_cdn_ip_cf
+      - exec: jump reforward_fastly_remote
+      - exec: accept # 查询失败也会停止，防止后续查询回落到国内上游
+
+  - tag: default_sequence # 默认使用 fallback
+    type: sequence
+    args:
+      - exec: jump fallback_sequence
+      - exec: jump change_cdn_ip_akamai
+      - exec: jump change_cdn_ip_cf
+      - exec: jump reforward_fastly_fallback
+      - exec: accept # 查询失败也会停止，防止后续查询回落到国内上游
+
+  - tag: default_sequence_original # 使用 fallback，不替换 CDN IP
+    type: sequence
+    args:
+      - exec: jump fallback_sequence
+      - exec: jump has_resp_sequence
+
+  - tag: default_sequence_ipv6 # 使用 fallback，但不替换 CDN IP，IPV6 优先
+    type: sequence
+    args:
+      - exec: jump fallback_sequence_ipv6
+      - exec: jump has_resp_sequence
+
+  - tag: ali_sequence
+    type: sequence
+    args:
+      # - exec: prefer_ipv4
+      - exec: \$forward_alidns
+      - exec: jump change_cdn_ip_akamai
+      - exec: jump change_cdn_ip_cf
+      - exec: jump reforward_fastly_fallback
+      - exec: accept # 查询失败也会停止，防止后续查询其他上游
+
+  - tag: ali_sequence_ipv4
+    type: sequence
+    args:
+      - exec: prefer_ipv4
+      - exec: \$forward_alidns
+      - exec: jump change_cdn_ip_akamai
+      - exec: jump change_cdn_ip_cf
+      - exec: jump reforward_fastly_fallback
+      - exec: accept # 查询失败也会停止，防止后续查询其他上游
+
+  # - tag: reforward_banned_ip
+  #   type: sequence
+  #   args:
+  #     - exec: debug_print "DNS poisoning detected"
+  #     - exec: jump fallback_sequence
+  #     - exec: return
+
+  - tag: main
+    type: sequence
+    args:
+      - matches:
+          - qtype 65
+        exec: reject 3 # 屏蔽 QTYPE 65
+
+      - exec: \$hosts
+      - exec: jump has_resp_sequence
+
+      - matches:
+          - qname \$privatelist #内网域名
+        exec: reject 5 # 屏蔽内网域名
+        # exec: \$forward_lan # 查询内网 DNS
+      # - exec: jump has_resp_sequence
+
+      - matches:
+          - qname \$whitelist # DDNS 和 其他白名单
+        exec: \$forward_local
+      - exec: ttl 5-180
+      - exec: jump has_resp_sequence
+
+      - matches:
+          - qname \$blocklist # 黑名单，可添加去广告列表
+        exec: reject 5
+
+      - exec: \$cache_0 # 下面的请求结果均进入缓存
+
+      - matches:
+          - qname \$ipv6list
+        exec: jump default_sequence_ipv6 # IPV6 域名请求 EASY DNS
+
+      - matches:
+          - qname \$originallist # 不进行 IP 替换的域名，通常是游戏等使用非常用端口的域名
+        exec: jump default_sequence_original
+
+      - matches:
+          - qname \$greylist
+        exec: jump default_sequence # 污染域名请求 EASY DNS
+
+      - matches:
+          - qname \$geosite_cn # 国内域名走阿里 DNS，也可以走运营商 DNS
+        exec: jump ali_sequence # 如果使用策略 1，可以考虑去掉这一段。去掉后，当阿里 DNS 查询失败后会查询可信上游。
+
+      - matches:
+          - qname \$cdnlist apple.com icloud.com edgesuite.net msftconnecttest.com trafficmanager.net
+        exec: jump ali_sequence_ipv4 # 我这里用阿里 DNS 请求 AKAMAI 域名返回东京电信的概率较高，可以替换成其他。
+
+      - matches:
+          - qname \$gfwlist
+        exec: jump gfw_sequence # GFW 域名直接请求海外 DNS
+
+      - matches:
+          - qname \$akamailist
+        exec: jump ali_sequence_ipv4 # 我这里用阿里 DNS 请求 AKAMAI 域名返回东京电信的概率较高，可以替换成其他。
+
+      # 策略 1：默认查询国内上游，入返回境外 IP，再次将域名交给可信 DNS 查询。
+      - exec: \$forward_alidns # 默认使用阿里 DNS，如果担心 DNS 泄露，可以调换顺序，把 fallback 放在前面，代价是延迟会变高。这种情况下可以使用前面的 cdnlist 域名先做判断。
+      - matches:
+          - resp_ip \$banned_ip # 记录被污染域名，日后加入 gerylist。可以去掉。
+        exec: debug_print "DNS poisoning detected"
+      - matches:
+          - "resp_ip \$geoip_cn"
+        exec: accept # 返回国内 IP 直接接受
+      - exec: jump change_cdn_ip_akamai
+      - matches: # 有些 AKAMAI 的域名不能直接替换 IP（没有绑定全证书），此处多加一次判断，接受所有 AKAMAI CDN 的 IP。
+          - cname \$akamailist
+        exec: accept
+      - exec: jump change_cdn_ip_cf
+      - exec: jump reforward_fastly_fallback
+
+      # 策略 2：注释上方策略 1 的配置，默认查询可信 DNS，可以避免“DNS 泄露”，对上游稳定性要求更高
+      - exec: jump default_sequence # 其余域名使用可信 DNS
+
+
+  - tag: udp_server
+    type: udp_server
+    args:
+      entry: main
+      listen: ":${mosDNSServerPort}"
+
+  - tag: tcp_server
+    type: tcp_server
+    args:
+      entry: main
+      listen: ":${mosDNSServerPort}"
+      # cert: "/etc/nginx/conf.d/_lan.crt" # 配置 cert 和 key 后会启用 TLS (DoT)。
+      # key: "/etc/nginx/conf.d/_lan.key"
+      idle_timeout: 10 # 空连接超时。单位秒。默认 10。
 
 EOF
 
         fi
 
-        ${configMosdnsBinPath}/mosdns service install -c "${configMosdnsPath}/config.yaml" -d "${configMosdnsPath}" 
+        ${configMosdnsBinPath}/mosdns service install -c "${configMosdnsPath}/config.yaml" -d "${configMosdnsPath}"
         ${configMosdnsBinPath}/mosdns service start
 
 
@@ -8277,7 +8714,7 @@ EOF
 
         rm -f "${configMosdnsPath}/config_mosdns_cn.yaml"
 
-        cat > "${configMosdnsPath}/config_mosdns_cn.yaml" <<-EOF    
+        cat > "${configMosdnsPath}/config_mosdns_cn.yaml" <<-EOF
 server_addr: ":${mosDNSServerPort}"
 cache_size: 2048
 lazy_cache_ttl: 86400
@@ -8294,26 +8731,26 @@ debug: false
 log_file: "${configMosdnsPath}/mosdns-cn.log"
 upstream: []
 local_upstream: ["udp://223.5.5.5", "udp://119.29.29.29"]
-local_ip: ["${configMosdnsPath}/${geoipFilename}:cn"]
+local_ip: ["${configMosdnsPath}/rule/${geoipFilename}:cn"]
 local_domain: []
 local_latency: 50
-remote_upstream: [${addNewDNSServerIPMosdnsCnText}  ${addNewDNSServerDomainMosdnsCnText}  "udp://1.0.0.1", "udp://208.67.222.222", "tls://8.8.4.4:853", "udp://5.2.75.231", "udp://172.105.216.54"]
-remote_domain: ["${configMosdnsPath}/${geositeFilename}:geolocation-!cn"]
+remote_upstream: [ "udp://1.0.0.1", "udp://208.67.222.222", "tls://8.8.4.4:853", "udp://5.2.75.231", "udp://172.105.216.54"]
+remote_domain: ["${configMosdnsPath}/rule/${geositeFilename}:geolocation-!cn"]
 working_dir: "${configMosdnsPath}"
 cd2exe: false
 
 EOF
 
-        ${configMosdnsBinPath}/mosdns-cn --service install --config "${configMosdnsPath}/config_mosdns_cn.yaml" --dir "${configMosdnsPath}" 
+        ${configMosdnsBinPath}/mosdns-cn --service install --config "${configMosdnsPath}/config_mosdns_cn.yaml" --dir "${configMosdnsPath}"
 
         ${configMosdnsBinPath}/mosdns-cn --service start
     fi
 
-    echo 
+    echo
     green " =================================================="
     green " ${isinstallMosdnsName} 安装成功! 运行端口: ${mosDNSServerPort}"
     echo
-    green " 启动: systemctl start ${isinstallMosdnsName}   停止: systemctl stop ${isinstallMosdnsName}"  
+    green " 启动: systemctl start ${isinstallMosdnsName}   停止: systemctl stop ${isinstallMosdnsName}"
     green " 重启: systemctl restart ${isinstallMosdnsName}"
     green " 查看状态: systemctl status ${isinstallMosdnsName} "
     green " 查看log: journalctl -n 50 -u ${isinstallMosdnsName} "
@@ -8350,7 +8787,6 @@ function removeMosdns(){
         else
             ${configMosdnsBinPath}/mosdns-cn --service stop
             ${configMosdnsBinPath}/mosdns-cn --service uninstall
-
         fi
 
         rm -rf "${configMosdnsBinPath}"
@@ -8381,7 +8817,7 @@ function removeMosdns(){
 
 configAdGuardPath="/opt/AdGuardHome"
 
-# DNS server 
+# DNS server
 function installAdGuardHome(){
     wget -qN --no-check-certificate -O ./ad_guard_install.sh https://raw.githubusercontent.com/AdguardTeam/AdGuardHome/master/scripts/install.sh && chmod +x ./ad_guard_install.sh && ./ad_guard_install.sh -v
     echo
@@ -8420,7 +8856,7 @@ function getAdGuardHomeSSLCertification(){
 function replaceAdGuardConfig(){
 
     if [ -f "${configAdGuardPath}/AdGuardHome" ]; then
-        
+
         if [ -f "${configAdGuardPath}/AdGuardHome.yaml" ]; then
             echo
             yellow " 准备把已申请到的SSL证书填入 AdGuardHome 配置文件"
@@ -8460,7 +8896,7 @@ EOM
 
 
             read -r -d '' adGuardConfigBootstrapDns << EOM
-  - 1.0.0.1 
+  - 1.0.0.1
   - 8.8.8.8
   - 8.8.4.4
 EOM
@@ -8500,7 +8936,7 @@ EOM
         else
             red " 未检测到AdGuardHome配置文件 ${configAdGuardPath}/AdGuardHome.yaml, 请先完成AdGuardHome初始化配置"
             red " ${configAdGuardPath}/AdGuardHome.yaml not found, pls complete the AdGuardHome initialization first!"
-        fi 
+        fi
 
     else
         red "AdGuard Home not found, Please install AdGuard Home first !"
@@ -8565,7 +9001,7 @@ function startMenuOther(){
     clear
 
     if [[ ${configLanguage} == "cn" ]] ; then
-    
+
     green " =================================================="
     red " 安装下面3个可视化管理面板 之前不能用本脚本或其他脚本安装过trojan或v2ray! "
     red " 如果已安装过 trojan 或 v2ray 请先卸载或重做干净系统! 3个管理面板无法同时安装"
@@ -8593,8 +9029,8 @@ function startMenuOther(){
     green " 46. testrace 回程路由测试 by nanqinlang （四网路由 上海电信 厦门电信 浙江杭州联通 浙江杭州移动 北京教育网）"
     green " 47. autoBestTrace 回程路由测试 (广州电信 上海电信 厦门电信 重庆联通 成都联通 上海移动 成都移动 成都教育网)"
     green " 48. 回程路由测试 推荐使用 (北京电信/联通/移动 上海电信/联通/移动 广州电信/联通/移动 )"
-    green " 49. 三网回程路由测试 Go 语言开发 by zhanghanyun "   
-    green " 50. 独立服务器测试 包括系统信息和I/O测试" 
+    green " 49. 三网回程路由测试 Go 语言开发 by zhanghanyun "
+    green " 50. 独立服务器测试 包括系统信息和I/O测试"
     echo
     green " =================================================="
     green " 51. 测试VPS 是否支持 Netflix 非自制剧解锁 支持 WARP sock5 测试, 推荐使用 "
@@ -8608,11 +9044,11 @@ function startMenuOther(){
     green " 63. 安装 宝塔面板破解版 7.9 by yu.al"
     echo
     green " 99. 返回上级菜单"
-    green " 0. 退出脚本"    
+    green " 0. 退出脚本"
 
     else
 
-    
+
     green " =================================================="
     red " Install 3 UI admin panel below require clean VPS system. Cannot install if VPS already installed trojan or v2ray "
     red " Pls remove trojan or v2ray if installed. Prefer using clean system to install UI admin panel. "
@@ -8641,8 +9077,8 @@ function startMenuOther(){
     green " 46. testrace by nanqinlang （四网路由 上海电信 厦门电信 浙江杭州联通 浙江杭州移动 北京教育网）"
     green " 47. autoBestTrace (Traceroute test 广州电信 上海电信 厦门电信 重庆联通 成都联通 上海移动 成都移动 成都教育网)"
     green " 48. returnroute test (北京电信/联通/移动 上海电信/联通/移动 广州电信/联通/移动 )"
-    green " 49. returnroute test by zhanghanyun powered by Go (三网回程路由测试 ) "    
-    green " 50. A bench script for dedicated servers "    
+    green " 49. returnroute test by zhanghanyun powered by Go (三网回程路由测试 ) "
+    green " 50. A bench script for dedicated servers "
     echo
     green " =================================================="
     green " 51. Netflix region and non-self produced drama unlock test, support WARP SOCKS5 proxy and IPv6"
@@ -8698,13 +9134,13 @@ function startMenuOther(){
         ;;
         10 )
             removeXUI
-        ;;                                        
+        ;;
         41 )
             vps_superspeed
         ;;
         42 )
             vps_yabs
-        ;;        
+        ;;
         43 )
             vps_bench
         ;;
@@ -8726,10 +9162,10 @@ function startMenuOther(){
         ;;
         49 )
             vps_returnroute2
-        ;;                
+        ;;
         50 )
             vps_bench_dedicated
-        ;;        
+        ;;
         51 )
             vps_netflix_jin
         ;;
@@ -8807,7 +9243,7 @@ function start_menu(){
     if [[ ${configLanguage} == "cn" ]] ; then
 
     green " ===================================================================================================="
-    green " Trojan-go V2ray Xray 一键安装脚本 | 2023-4-10 | 系统支持：centos7+ / debian9+ / ubuntu16.04+"
+    green " Trojan-go V2ray Xray 一键安装脚本 | 2024-3-13 | 系统支持：centos7+ / debian9+ / ubuntu16.04+"
     green " ===================================================================================================="
     green " 1. 安装linux内核 bbr plus, 安装WireGuard, 用于解锁 Netflix 限制和避免弹出 Google reCAPTCHA 人机验证"
     echo
@@ -8825,14 +9261,14 @@ function start_menu(){
     green " 13. 安装 v2ray或xray (VLess-TCP-[TLS/XTLS])+(VMess-TCP-TLS)+(VMess-WS-TLS) 支持CDN, 可选安装nginx, VLess运行在443端口"
     green " 14. 安装 v2ray或xray (VLess-gRPC-TLS) 支持CDN, 可选安装nginx, VLess运行在443端口"
     green " 15. 安装 v2ray或xray (VLess-TCP-[TLS/XTLS])+(VLess-WS-TLS) 支持CDN, 可选安装nginx, VLess运行在443端口"
-    green " 16. 安装 v2ray或xray (VLess-TCP-[TLS/XTLS])+(VLess-WS-TLS)+xray自带的trojan, 支持CDN, 可选安装nginx, VLess运行在443端口"  
-    green " 17. 安装 v2ray或xray (VLess-TCP-XTLS Vision)) 不支持CDN, 可选安装nginx, VLess运行在443端口" 
+    green " 16. 安装 v2ray或xray (VLess-TCP-[TLS/XTLS])+(VLess-WS-TLS)+xray自带的trojan, 支持CDN, 可选安装nginx, VLess运行在443端口"
+    green " 17. 安装 v2ray或xray (VLess-TCP-XTLS Vision)) 不支持CDN, 可选安装nginx, VLess运行在443端口"
     green " 18. 安装 v2ray或xray (VLess-TCP-REALITY XTLS Vision)) 不支持CDN, 可选安装nginx, VLess运行在443端口"
     green " 19. 升级 v2ray或xray 到最新版本"
     red " 20. 卸载 v2ray或xray 和 nginx"
     echo
-    green " 21. 同时安装 v2ray或xray 和 trojan-go (VLess-TCP-[TLS/XTLS])+(VLess-WS-TLS)+Trojan, 支持CDN, 可选安装nginx, VLess运行在443端口"  
-    green " 22. 同时安装 nginx, v2ray或xray 和 trojan-go (VLess/Vmess-WS-TLS)+Trojan, 支持CDN, trojan-go运行在443端口"  
+    green " 21. 同时安装 v2ray或xray 和 trojan-go (VLess-TCP-[TLS/XTLS])+(VLess-WS-TLS)+Trojan, 支持CDN, 可选安装nginx, VLess运行在443端口"
+    green " 22. 同时安装 nginx, v2ray或xray 和 trojan-go (VLess/Vmess-WS-TLS)+Trojan, 支持CDN, trojan-go运行在443端口"
     green " 23. 同时安装 nginx, v2ray或xray 和 trojan-go, 通过 nginx SNI 分流, 支持CDN, 支持与现有网站共存, nginx 运行在443端口 "
     red " 24. 卸载 trojan-go, v2ray或xray 和 nginx"
     echo
@@ -8841,8 +9277,8 @@ function start_menu(){
     green " 30. 子菜单 安装 trojan 和 v2ray 可视化管理面板, VPS测速工具, Netflix测试解锁工具, 安装宝塔面板等"
     green " =================================================="
     green " 31. 安装DNS服务器 AdGuardHome 支持去广告"
-    green " 32. 给 AdGuardHome 申请免费的SSL证书, 并开启DOH与DOT"    
-    green " 33. 安装DNS国内国外分流服务器 mosdns 或 mosdns-cn"    
+    green " 32. 给 AdGuardHome 申请免费的SSL证书, 并开启DOH与DOT"
+    green " 33. 安装DNS国内国外分流服务器 mosdns 或 mosdns-cn"
     red " 34. 卸载 mosdns 或 mosdns-cn DNS服务器 "
     echo
     green " 41. 安装OhMyZsh与插件zsh-autosuggestions, Micro编辑器 等软件"
@@ -8858,7 +9294,7 @@ function start_menu(){
 
 
     green " ===================================================================================================="
-    green " Trojan-go V2ray Xray Installation | 2023-4-10 | OS support: centos7+ / debian9+ / ubuntu16.04+"
+    green " Trojan-go V2ray Xray Installation | 2024-3-13 | OS support: centos7+ / debian9+ / ubuntu16.04+"
     green " ===================================================================================================="
     green " 1. Install linux kernel,  bbr plus kernel, WireGuard and Cloudflare WARP. Unlock Netflix geo restriction and avoid Google reCAPTCHA"
     echo
@@ -8965,7 +9401,7 @@ function start_menu(){
             configInstallNginxMode="noSSL"
             configV2rayWorkingMode="vlessTCPWSTrojan"
             installTrojanV2rayWithNginx "v2ray_nginxOptional"
-        ;; 
+        ;;
         17 )
             configInstallNginxMode="noSSL"
             configV2rayWorkingMode="vlessTCPVision"
@@ -9006,7 +9442,7 @@ function start_menu(){
         ;;
         25 )
             cat "${configReadme}"
-        ;;        
+        ;;
         26 )
             installTrojanV2rayWithNginx
         ;;
@@ -9018,10 +9454,10 @@ function start_menu(){
         ;;
         32 )
             getAdGuardHomeSSLCertification "$@"
-        ;;        
+        ;;
         33 )
             installMosdns
-        ;;        
+        ;;
         34 )
             removeMosdns
         ;;
@@ -9079,7 +9515,7 @@ function start_menu(){
         ;;
         84 )
             firewallForbiden
-        ;;        
+        ;;
         88 )
             upgradeScript
         ;;
@@ -9110,10 +9546,10 @@ function setLanguage(){
     green " =================================================="
     green " Please choose your language"
     green " 1. English"
-    green " 2. 中文"  
+    green " 2. 中文"
     echo
     read -r -p "Please input your language:" languageInput
-    
+
     case "${languageInput}" in
         1 )
             echo "en" > ${configLanguageFilePath}
