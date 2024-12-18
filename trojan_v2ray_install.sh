@@ -584,16 +584,37 @@ function installSoftDownload(){
             # https://techglimpse.com/failed-metadata-repo-appstream-centos-8/
 
             cd /etc/yum.repos.d/
-            sed -i 's/mirrorlist/#mirrorlist/g' /etc/yum.repos.d/CentOS-*
+            sed -i 's/^mirrorlist/#mirrorlist/g' /etc/yum.repos.d/CentOS-*
             sed -i 's|#baseurl=http://mirror.centos.org|baseurl=http://vault.centos.org|g' /etc/yum.repos.d/CentOS-*
             yum update -y
 
-            sed -i 's/mirrorlist/#mirrorlist/g' /etc/yum.repos.d/CentOS-Linux-*
+            sed -i 's/^mirrorlist/#mirrorlist/g' /etc/yum.repos.d/CentOS-Linux-*
             sed -i 's|#baseurl=http://mirror.centos.org|baseurl=http://vault.centos.org|g' /etc/yum.repos.d/CentOS-Linux-*
 
             ${sudoCmd} dnf install centos-release-stream -y
             ${sudoCmd} dnf swap centos-{linux,stream}-repos -y
             ${sudoCmd} dnf distro-sync -y
+        fi
+
+
+        if [[ ${osInfo} == "AlmaLinux" ]]; then
+
+            # 定义要检查的 GPG 密钥 ID
+            KEY_ID="ced7258b"
+
+            # 使用 rpm -qi 命令检查是否安装了指定的 GPG 密钥
+            rpm -qi "gpg-pubkey-$KEY_ID" &>/dev/null
+
+            # 检查命令的退出状态码
+            if [ $? -eq 0 ]; then
+                # red "GPG key with ID $KEY_ID is installed."
+                echo
+            else
+                red "GPG key with ID $KEY_ID is NOT installed."
+                ${sudoCmd} rpm --import https://repo.almalinux.org/almalinux/RPM-GPG-KEY-AlmaLinux
+                ${sudoCmd} dnf clean all
+                ${sudoCmd} dnf makecache
+            fi
         fi
 
         PACKAGE_LIST_Centos=( "wget" "curl" "git" "unzip" "glibc-langpack-en" )
@@ -890,7 +911,6 @@ function vps_netflix(){
     # bash <(curl -L -s https://raw.githubusercontent.com/lmc999/RegionRestrictionCheck/main/check.sh)
 
     # wget -N --no-check-certificate https://github.com/CoiaPrant/Netflix_Unlock_Information/raw/main/netflix.sh && chmod +x netflix.sh && ./netflix.sh
-    # wget -N --no-check-certificate -O netflixcheck https://github.com/sjlleo/netflix-verify/releases/download/2.61/nf_2.61_linux_amd64 && chmod +x ./netflixcheck && ./netflixcheck -method full
 
     wget -N --no-check-certificate -O ./netflix.sh https://github.com/CoiaPrant/MediaUnlock_Test/raw/main/check.sh && chmod +x ./netflix.sh && ./netflix.sh
 }
@@ -905,15 +925,20 @@ function vps_netflix_jin(){
 }
 
 
-
 function vps_netflixgo(){
-    wget -qN --no-check-certificate -O netflixGo https://github.com/sjlleo/netflix-verify/releases/download/v3.1.0-1/nf_linux_amd64 && chmod +x ./netflixGo && ./netflixGo
-    # wget -qN --no-check-certificate -O netflixGo https://github.com/sjlleo/netflix-verify/releases/download/2.61/nf_2.61_linux_amd64 && chmod +x ./netflixGo && ./netflixGo -method full
+    wget -N --no-check-certificate -O netflixGo https://github.com/sjlleo/netflix-verify/releases/download/v3.1.0-1/nf_linux_amd64 && chmod +x ./netflixGo && ./netflixGo
+    # wget -N --no-check-certificate -O netflixGo https://github.com/sjlleo/netflix-verify/releases/download/2.61/nf_2.61_linux_amd64 && chmod +x ./netflixGo && ./netflixGo -method full
     echo
     echo
     wget -qN --no-check-certificate -O disneyplusGo https://github.com/sjlleo/VerifyDisneyPlus/releases/download/1.01/dp_1.01_linux_amd64 && chmod +x ./disneyplusGo && ./disneyplusGo
 }
 
+
+function vps_bench_ecs(){
+    curl -L https://github.com/spiritLHLS/ecs/raw/main/ecs.sh -o ecs.sh && chmod +x ecs.sh && bash ecs.sh
+    # bash <(wget -qO- bash.spiritlhl.net/ecs)
+    # wget -N --no-check-certificate https://raw.githubusercontent.com/spiritLHLS/ecs/refs/heads/main/ecs.sh && chmod +x ecs.sh && ./ecs.sh
+}
 
 function vps_superspeed(){
     bash <(curl -Lso- https://git.io/superspeed_uxh)
@@ -1086,7 +1111,7 @@ downloadFilenameTrojan="trojan-${versionTrojan}-linux-amd64.tar.xz"
 versionTrojanGo="0.10.6"
 downloadFilenameTrojanGo="trojan-go-linux-amd64.zip"
 
-versionV2ray="5.12.1"
+versionV2ray="5.21.0"
 downloadFilenameV2ray="v2ray-linux-64.zip"
 
 versionXray="1.8.7"
@@ -1203,6 +1228,9 @@ function downloadAndUnzip(){
 
 function getGithubLatestReleaseVersion(){
     # https://github.com/p4gefau1t/trojan-go/issues/63
+    # wget --no-check-certificate -qO- https://api.github.com/repos/XTLS/Xray-core/tags | grep 'name' | cut -d\" -f4 | head -1 | cut -b 2-
+    # wget --no-check-certificate -qO- https://api.github.com/repos/v2fly/v2ray-core/tags | grep 'name' | cut -d\" -f4 | head -1 | cut -b 2-
+    # wget --no-check-certificate -qO- https://api.github.com/repos/v2fly/v2ray-core/releases/latest | grep 'name' | cut -d\" -f4 | head -1 | cut -b 2-
     wget --no-check-certificate -qO- https://api.github.com/repos/$1/tags | grep 'name' | cut -d\" -f4 | head -1 | cut -b 2-
 }
 
@@ -1216,7 +1244,7 @@ function getV2rayVersion(){
         echo
         green " ================================================== "
         green " 请选择 V2ray 的版本, 默认直接回车为 稳定版4.45.2 (推荐)"
-        green " 选否则安装最新版的 V2ray 5.4.1 User Preview"
+        green " 选否则安装最新版的 V2ray 5.21.0"
         echo
         read -r -p "是否安装稳定版V2ray? 默认直接回车为稳定版4.45.2, 请输入[Y/n]:" isInstallXrayVersionInput
         isInstallXrayVersionInput=${isInstallXrayVersionInput:-Y}
@@ -1233,46 +1261,48 @@ function getV2rayVersion(){
     if [[ $1 == "xray" ]] ; then
         echo
         green " ================================================== "
-        tempXrayVersionDisplayText="2"
+        tempXrayVersionDisplayText="5"
 
-        if [[ $configV2rayWorkingMode == "vlessTCPREALITY" ]]; then
-            tempXrayVersionDisplayText="1"
-            green " 请选择 Xray 的版本, 默认直接回车为 1.8.7 或以上的最新版本"
-            echo
-            green " 1. 1.8.7 或以上的最新版本 支持 REALITY 和 XTLS Vision"
+        yellow " Xray 1.6.0 及以上的版本, 支持 Shadowsocks-2022"
+        yellow " Xray 1.7.0 及以上的版本, 支持 xtls-rprx-vision"
+        yellow " Xray 1.8.0 及以上的版本, 支持 REALITY 协议 "
+        yellow " Xray 1.8.21 及以上的版本, 支持 SplitHTTP for HTTP/3(QUIC) "
+        echo
 
-        elif [[ $configV2rayWorkingMode == "vlessTCPVision" ]]; then
-            tempXrayVersionDisplayText="1"
-            green " 请选择 Xray 的版本, 默认直接回车为 1.8.7 或以上的最新版本"
-            echo
-            green " 1. 1.8.7 或以上的最新版本 支持 REALITY 和 XTLS Vision"
-            green " 2. 1.7.5 支持 XTLS Vision "
-
-        else
-            green " 请选择 Xray 的版本, 默认直接回车为 1.7.5"
-            echo
-            if [[ $2 == "update" ]]; then
-                red "升级 1.8.7 或以上版本可能导致 启动失败, 不兼容旧版 XTLS 配置!"
-                echo
-            fi
-
-            if [[ $2 == "shadowsocks" ]]; then
-                echo
-            fi
-
-            green " 1. 1.8.7 或以上的最新版本 支持 REALITY 和 XTLS Vision"
-            green " 2. 1.7.5 支持 XTLS Vision (推荐)"
-            green " 3. 1.6.1 (推荐)"
-            green " 4. 1.6.0"
-            green " 5. 1.5.5"
-            green " 6. 1.5.4"
-            green " 7. 1.5.3"
-            green " 8. 1.5.2"
-            green " 9. 1.5.1"
-            green " 10. 1.5.0"
-            green " 11. 1.4.5"
-            green " 12. 1.3.1"
+        if [[ $2 == "update" ]]; then
+            red "升级 1.8.7 或以上版本可能导致 启动失败, 不兼容旧版 XTLS 配置!"
         fi
+        green " ================================================== "
+
+        if [[ $configV2rayWorkingMode == "vlessTCPREALITY" ||  $configV2rayWorkingMode == "vlessTCPVision" ]]; then
+            tempXrayVersionDisplayText="1"
+            green " 请选择 Xray 的版本, 默认直接回车为 1.8.24 或以上的最新版本"
+            echo
+            green " 1. 24.9.30 或以上的最新版本 支持 REALITY 和 SplitHTTP"
+            green " 2. 1.8.24 支持 SplitHTTP for HTTP/3 旧版本号格式的最后一个版本"
+            green " 3. 1.8.13 支持 REALITY (推荐)"
+            green " 4. 1.8.11 支持 REALITY (推荐) HTTPUpgrade path 后加上 ?ed=2560 才会启用 0-RTT"
+            green " 5. 1.8.4 支持 REALITY 此为最后一个支持win7的版本"
+            green " 6. 1.7.5 支持 XTLS Vision"
+        else
+            green " 请选择 Xray 的版本, 默认直接回车为 1.8.4"
+            echo
+            green " 1. 24.9.30 或以上的最新版本 支持 REALITY 和 SplitHTTP"
+            green " 2. 1.8.24 支持 SplitHTTP for HTTP/3 旧版本号格式的最后一个版本"
+            green " 3. 1.8.13 支持 REALITY (推荐)"
+            green " 4. 1.8.11 支持 REALITY (推荐) HTTPUpgrade path 后加上 ?ed=2560 才会启用 0-RTT"
+            green " 5. 1.8.4 支持 REALITY 此为最后一个支持win7的版本"
+            green " 6. 1.7.5 支持 XTLS Vision"
+            green " 7. 1.6.1 (推荐) 支持 Shadowsocks-2022"
+            green " 8. 1.5.5"
+            green " 9. 1.5.4"
+            green " 10. 1.5.2"
+            green " 11. 1.5.1 VMESS AEAD 从2022/1/1/强制启用 请注意更新服务端 移除alterId参数"
+            green " 12. 1.5.0"
+            green " 13. 1.4.5"
+            green " 14. 1.3.1"
+        fi
+
 
         echo
         read -r -p "请选择Xray版本? 直接回车默认选${tempXrayVersionDisplayText}, 请输入纯数字:" isXrayVersionInput
@@ -1280,39 +1310,42 @@ function getV2rayVersion(){
 
         if [[ "${isXrayVersionInput}" == "1" ]]; then
             versionXray=$(getGithubLatestReleaseVersion "XTLS/Xray-core")
-
+            # versionXray="24.9.30"
+        elif [[ "${isXrayVersionInput}" == "2" ]]; then
+            versionXray="1.8.24"
         elif [[ "${isXrayVersionInput}" == "3" ]]; then
-            versionXray="1.6.1"
-
+            versionXray="1.8.13"
         elif [[ "${isXrayVersionInput}" == "4" ]]; then
-            versionXray="1.6.0"
-
+            versionXray="1.8.11"
         elif [[ "${isXrayVersionInput}" == "5" ]]; then
-            versionXray="1.5.5"
+            versionXray="1.8.4"
 
         elif [[ "${isXrayVersionInput}" == "6" ]]; then
-            versionXray="1.5.4"
+            versionXray="1.7.5"
 
         elif [[ "${isXrayVersionInput}" == "7" ]]; then
-            versionXray="1.5.3"
+            versionXray="1.6.1"
 
         elif [[ "${isXrayVersionInput}" == "8" ]]; then
-            versionXray="1.5.2"
+            versionXray="1.5.5"
 
         elif [[ "${isXrayVersionInput}" == "9" ]]; then
-            versionXray="1.5.1"
-
+            versionXray="1.5.4"
         elif [[ "${isXrayVersionInput}" == "10" ]]; then
-            versionXray="1.5.0"
+            versionXray="1.5.2"
 
         elif [[ "${isXrayVersionInput}" == "11" ]]; then
-            versionXray="1.4.5"
+            versionXray="1.5.1"
 
         elif [[ "${isXrayVersionInput}" == "12" ]]; then
+            versionXray="1.5.0"
+        elif [[ "${isXrayVersionInput}" == "13" ]]; then
+            versionXray="1.4.5"
+        elif [[ "${isXrayVersionInput}" == "14" ]]; then
             versionXray="1.3.1"
 
         else
-            versionXray="1.7.5"
+            versionXray="1.8.4"
         fi
 
         echo "versionXray: ${versionXray}"
@@ -4946,7 +4979,7 @@ EOM
 
 
 function v2rayRouteRule(){
-    site_LIST=("google" "openai" "twitter" "netflix" "disney" "youtube" "spotify" "pornhub" )
+    site_LIST=("google" "openai" "anthropic" "twitter" "netflix" "disney" "youtube" "spotify" "pornhub" )
 
     V2rayUnlockSiteRuleV6Text=""
     V2rayUnlockSiteRuleSock5Text=""
@@ -4963,6 +4996,9 @@ function v2rayRouteRule(){
 
         elif [[ "${site}" == "openai" ]]; then
         yellow " 请选择 解锁 OpenAI ChatGPT 方式"
+
+        elif [[ "${site}" == "anthropic" ]]; then
+        yellow " 请选择 解锁 Anthropic Claude AI 方式"
 
         elif [[ "${site}" == "twitter" ]]; then
         yellow " 请选择 解锁 Twitter 方式"
@@ -5000,23 +5036,16 @@ function v2rayRouteRule(){
         isV2rayUnlockGoogleInput=${isV2rayUnlockGoogleInput:-1}
 
         V2rayUnlockSiteRuleTempText=", \"geosite:${site}\" "
-        if [[ "${site}" == "others" ]]; then
-            V2rayUnlockSiteRuleTempText=", \"geosite:${site}\" "
-        fi
 
         if [[ $isV2rayUnlockGoogleInput == "2" ]]; then
-
             V2rayUnlockSiteRuleV6Text+="${V2rayUnlockSiteRuleTempText}"
 
         elif [[ $isV2rayUnlockGoogleInput == "3" ]]; then
-
             V2rayUnlockSiteRuleSock5Text+="${V2rayUnlockSiteRuleTempText}"
-
             inputUnlockWARPSock5Server
 
         elif [[ $isV2rayUnlockGoogleInput == "4" ]]; then
             V2rayUnlockSiteRuleV2rayServerText+="${V2rayUnlockSiteRuleTempText}"
-
             inputUnlockV2rayServerInfo
         else
             echo ""
@@ -8978,6 +9007,7 @@ EOM
 
 
 function firewallForbiden(){
+    # 禁止邮件端口
     # firewall-cmd --permanent --direct --add-rule ipv4 filter OUTPUT 0 -p tcp -m tcp --dport=25 -j ACCEPT
     # firewall-cmd --permanent --direct --add-rule ipv4 filter OUTPUT 1 -p tcp -m tcp --dport=25 -j REJECT
     # firewall-cmd --reload
@@ -9021,6 +9051,7 @@ function startMenuOther(){
     echo
     green " =================================================="
     red " 以下是 VPS 测网速工具, 脚本测速会消耗大量 VPS 流量，请悉知！"
+    green " 40. 融合怪测评脚本 spiritLHLS/ecs "
     green " 41. superspeed 三网纯测速 （全国各地三大运营商部分节点全面测速）推荐使用 "
     green " 42. yet-another-bench-script 综合测试 （包含 CPU IO 测试 国际多个数据节点网速测试）推荐使用"
     green " 43. 由teddysun 编写的Bench 综合测试 （包含系统信息 IO 测试 国内多个数据节点网速测试）"
@@ -9069,6 +9100,7 @@ function startMenuOther(){
     echo
     green " =================================================="
     red " VPS speedtest tools. Pay attention that speed tests will consume lots of traffic."
+    green " 40. VPS_Fusion_Monster_Server_Test_Script by spiritLHLS/ecs "
     green " 41. superspeed. ( China telecom / China unicom / China mobile node speed test ) "
     green " 42. yet-another-bench-script ( CPU IO Memory Network speed test)"
     green " 43. Bench by teddysun"
@@ -9134,6 +9166,9 @@ function startMenuOther(){
         ;;
         10 )
             removeXUI
+        ;;
+        40 )
+            vps_bench_ecs
         ;;
         41 )
             vps_superspeed
